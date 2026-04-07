@@ -1,50 +1,33 @@
 import pygame
 
 # ============================================================================
-# LAYOUT CONSTANTS
+# FIXED LAYOUT CONSTANTS  (never change with window size)
 # ============================================================================
-SCREEN_W, SCREEN_H = 1800, 900
-CELL = 80  # castle tile pixel size
+TOP_H        = 75    # header height
+BTM_H        = 26    # footer height
+LEFT_W       = 130   # player-pioche panel (fixed)
+LOG_W        = 270   # action-log panel (fixed)
+HAND_BTN_H   = 36    # action button height
+HAND_BTN_GAP = 10    # gap between action buttons
+EXCH_GAP     = 4     # gap between exchange cards
+HAND_CARD_GAP  = 8   # gap between hand cards
+HAND_CARD_COLS = 5   # number of hand card columns
 
-# Panel widths (left to right)
-LEFT_W     = 130
-CASTLE_W   = CELL * 6 + 20  # 500: tiles -1..4 + margins
-EXCHANGE_W = 240
-LOG_W      = 280
-HAND_W     = SCREEN_W - LEFT_W - CASTLE_W - EXCHANGE_W - LOG_W  # 650
 
-# Panel X origins
-LEFT_X     = 0
-CASTLE_X   = LEFT_X + LEFT_W          # 130
-EXCHANGE_X = CASTLE_X + CASTLE_W      # 630
-LOG_X      = EXCHANGE_X + EXCHANGE_W  # 870
-HAND_X     = LOG_X + LOG_W            # 1150
-
-# Vertical layout
-TOP_H   = 75   # header
-BTM_H   = 26   # footer
-INNER_Y = TOP_H
-INNER_H = SCREEN_H - TOP_H - BTM_H   # 799
-
-# Castle coordinate system
-# Tile at grid (tx,ty) maps to screen pixel (CASTLE_ORIGIN_X + tx*CELL, CASTLE_ORIGIN_Y + ty*CELL)
-# tile(-1,-1) is at (CASTLE_X+20, INNER_Y+10) = (150, 85)
-# So CASTLE_ORIGIN_X = CASTLE_X+20+CELL = 230, CASTLE_ORIGIN_Y = INNER_Y+10+CELL = 165
-CASTLE_ORIGIN_X = CASTLE_X + 20 + CELL   # 230
-CASTLE_ORIGIN_Y = INNER_Y + 10 + CELL    # 165
-CASTLE_GRID_BOTTOM = CASTLE_ORIGIN_Y + 5 * CELL  # 565
-
-# Exterior strip (green zone) below castle
-EXTERIOR_LABEL_Y = CASTLE_GRID_BOTTOM + 4   # 569
-EXTERIOR_Y       = EXTERIOR_LABEL_Y + 18    # 587
-EXTERIOR_H       = SCREEN_H - BTM_H - EXTERIOR_Y  # 287
+# Canonical siege slot positions (one per rempart face)
+SIEGE_SLOTS = (
+    [(-2, y) for y in range(4)] +   # left wall
+    [(5,  y) for y in range(4)] +   # right wall
+    [(x, -2) for x in range(4)] +   # top wall
+    [(x,  5) for x in range(4)]     # bottom wall
+)
 
 
 class CastelWindow:
     def __init__(self, game):
         self.game = game
         pygame.init()
-        self.screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
+        self.screen = pygame.display.set_mode((self.sw, self.sh), pygame.RESIZABLE)
         pygame.display.set_caption("Castel - Jeu de Plateau")
         self.clock = pygame.time.Clock()
         self.running = True
@@ -61,7 +44,7 @@ class CastelWindow:
         self.drag_offset                = (0, 0)
         self.ai_delay                   = 60
         self.action_log                 = []
-        self.max_log_lines              = 35
+        self.max_log_lines              = 40
         self.mouse_pos                  = (0, 0)
         self.tooltip_card               = None
         self.exchange_mode              = False
@@ -70,6 +53,41 @@ class CastelWindow:
         self.action_buttons             = {}
         self.game_over                  = False
         self.winner                     = None
+        self._recompute_layout(1800, 900)
+        self._create_action_buttons()
+
+
+    def _recompute_layout(self, w, h):
+        """Compute all layout variables from window size. Call on init and resize."""
+        self.sw, self.sh = w, h
+        self.inner_h = h - TOP_H - BTM_H
+
+        # CELL: constrained by both vertical space and castle panel width
+        cell_v = max(40, min(120, (h - TOP_H - BTM_H - 60) // 9))
+        avail_w = w - LEFT_W - LOG_W
+        cell_h  = max(40, min(120, (avail_w // 2 - 40) // 8))
+        self.cell = min(cell_v, cell_h)
+        c = self.cell
+
+        self.castle_w = 8 * c + 40
+        self.hand_w   = max(300, w - LEFT_W - self.castle_w - LOG_W)
+        self.castle_x = LEFT_W
+        self.log_x    = self.castle_x + self.castle_w
+        self.hand_x   = self.log_x + LOG_W
+
+        self.castle_origin_x = self.castle_x + 20 + 2 * c
+        self.castle_origin_y = TOP_H + 20 + 2 * c
+
+        self.castle_grid_bottom = self.castle_origin_y + 5 * c
+        self.ext_strip_y = self.castle_grid_bottom + c + 4
+        self.ext_strip_h = h - BTM_H - self.ext_strip_y
+
+        # Exchange cards: same cell size as hand cards
+        self.exch_cols = max(3, (self.hand_w - 20) // (c + EXCH_GAP))
+
+    def _on_resize(self, w, h):
+        """Handle window resize: recompute layout and recreate buttons."""
+        self._recompute_layout(w, h)
         self._create_action_buttons()
 
     # -------------------------------------------------------------------------
@@ -92,14 +110,16 @@ class CastelWindow:
         return mapping.get(getattr(card, "couleur", "").lower(), (130, 130, 130))
 
     def _castle_px(self, tx, ty):
-        return (CASTLE_ORIGIN_X + tx * CELL, CASTLE_ORIGIN_Y + ty * CELL)
+        """Return top-left screen pixel for castle grid position (tx, ty)."""
+        return (self.castle_origin_x + tx * self.cell, self.castle_origin_y + ty * self.cell)
 
     def _grid_from_px(self, px, py):
-        tx = (px - CASTLE_ORIGIN_X) // CELL
-        ty = (py - CASTLE_ORIGIN_Y) // CELL
-        sx = CASTLE_ORIGIN_X + tx * CELL
-        sy = CASTLE_ORIGIN_Y + ty * CELL
-        if sx <= px < sx + CELL and sy <= py < sy + CELL:
+        """Return (tx, ty) for screen position if inside the castle grid, else None."""
+        tx = (px - self.castle_origin_x) // self.cell
+        ty = (py - self.castle_origin_y) // self.cell
+        sx = self.castle_origin_x + tx * self.cell
+        sy = self.castle_origin_y + ty * self.cell
+        if sx <= px < sx + self.cell and sy <= py < sy + self.cell:
             return (tx, ty)
         return None
 
@@ -117,57 +137,77 @@ class CastelWindow:
         else:
             bg = self._card_color(card)
             pygame.draw.rect(self.screen, bg, (px + 2, py + 2, size - 4, size - 4))
-            label = self.font_small.render(card.nom[:10], True, (230, 230, 230))
-            self.screen.blit(label, (px + 4, py + size // 2 - 7))
-
-    def _next_ext_pos(self):
-        for x in range(5, 50):
-            for y in range(0, 5):
-                if (x, y) not in self.game.board.exterieur and (x, y) not in self.game.board.tiles:
-                    return (x, y)
-        return None
+            lbl = self.font_small.render(card.nom[:10], True, (230, 230, 230))
+            self.screen.blit(lbl, (px + 4, py + size // 2 - 7))
 
     def _hand_idx_at(self, x, y, player):
-        lx = x - (HAND_X + 10)
-        ly = y - (INNER_Y + 32)
-        if lx < 0 or ly < 0:
+        bh = HAND_BTN_H
+        btn_y = TOP_H + self.inner_h - bh - 10
+        exch_rows = max(1, (len(self.game.exchange) + self.exch_cols - 1) // self.exch_cols)
+        exch_h = exch_rows * (self.cell + EXCH_GAP) + 24   # title + rows
+        exch_y = btn_y - 4 - exch_h
+        hand_cards_bottom = exch_y - 6
+
+        lx = x - (self.hand_x + 10)
+        ly = y - (TOP_H + 32)
+        if lx < 0 or ly < 0 or y >= hand_cards_bottom:
             return None
-        col = lx // (CELL + 8)
-        row = ly // (CELL + 8)
+        cw = self.cell; gap = 8
+        col = lx // (cw + gap)
+        row = ly // (cw + gap)
         idx = row * 5 + col
         if 0 <= col < 5 and 0 <= idx < len(player.hand):
             return idx
         return None
 
     def _exchange_idx_at(self, x, y):
-        lx = x - (EXCHANGE_X + 8)
-        ly = y - (INNER_Y + 26)
+        bh = HAND_BTN_H
+        btn_y = TOP_H + self.inner_h - bh - 10
+        exch_rows = max(1, (len(self.game.exchange) + self.exch_cols - 1) // self.exch_cols)
+        exch_h = exch_rows * (self.cell + EXCH_GAP) + 24
+        exch_y = btn_y - 4 - exch_h
+
+        lx = x - (self.hand_x + 10)
+        ly = y - (exch_y + 24)
         if lx < 0 or ly < 0:
             return None
-        cw, ch, gap = 52, 66, 4
-        cols = 4
-        col = lx // (cw + gap)
-        row = ly // (ch + gap)
-        idx = row * cols + col
-        if 0 <= col < cols and 0 <= idx < len(self.game.exchange):
+        col = lx // (self.cell + EXCH_GAP)
+        row = ly // (self.cell + EXCH_GAP)
+        idx = row * self.exch_cols + col
+        if 0 <= col < self.exch_cols and 0 <= idx < len(self.game.exchange):
             return idx
         return None
 
-    def _in_exterior_strip(self, x, y):
-        return CASTLE_X <= x <= CASTLE_X + CASTLE_W and EXTERIOR_Y <= y <= EXTERIOR_Y + EXTERIOR_H
+    def _in_ext_strip(self, x, y):
+        return self.castle_x <= x <= self.castle_x + self.castle_w and self.ext_strip_y <= y <= self.ext_strip_y + self.ext_strip_h
+
+    def _ext_strip_pos_from_px(self, x, y):
+        """Map a pixel in the exterior strip to a game board position."""
+        lx = x - (self.castle_x + 5)
+        ly = y - self.ext_strip_y
+        cw = self.cell; gap = 4
+        cols = (self.castle_w - 10) // (cw + gap)
+        col = max(0, lx // (cw + gap))
+        row = max(0, ly // (cw + gap))
+        # Use exterior positions starting at x=5, y=6 to avoid conflict with siege slots
+        return (5 + col, 6 + row)
+
+    def _is_siege_card(self, card):
+        return card is not None and card.nom == "Engin_de_siege"
 
     # -------------------------------------------------------------------------
-    # Create buttons inside hand panel
+    # Create action buttons at bottom of hand panel
     # -------------------------------------------------------------------------
 
     def _create_action_buttons(self):
-        bw, bh = 118, 36
-        gap = 10
-        by = INNER_Y + INNER_H - bh - 10
+        bw = max(80, (self.hand_w - 40) // 3 - HAND_BTN_GAP)
+        bh = HAND_BTN_H
+        gap = HAND_BTN_GAP
+        by = TOP_H + self.inner_h - bh - 10
         self.action_buttons = {
-            "draw":     pygame.Rect(HAND_X + 10,              by, bw, bh),
-            "exchange": pygame.Rect(HAND_X + 10 + bw + gap,   by, bw, bh),
-            "skip":     pygame.Rect(HAND_X + 10 + 2*(bw+gap), by, bw, bh),
+            "draw":     pygame.Rect(self.hand_x + 10,               by, bw, bh),
+            "exchange": pygame.Rect(self.hand_x + 10 + bw + gap,    by, bw, bh),
+            "skip":     pygame.Rect(self.hand_x + 10 + 2*(bw+gap),  by, bw, bh),
         }
 
     # -------------------------------------------------------------------------
@@ -181,6 +221,8 @@ class CastelWindow:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
+            if event.type == pygame.VIDEORESIZE:
+                self._on_resize(event.w, event.h)
             if event.type == pygame.MOUSEMOTION:
                 self.mouse_pos = event.pos
                 self._update_tooltip()
@@ -198,14 +240,13 @@ class CastelWindow:
             return
         x, y = pos
 
-        # Action buttons
         for name, rect in self.action_buttons.items():
             if rect.collidepoint(x, y):
                 self._handle_button(name, current)
                 return
 
-        # Exchange mode: click on exchange card
-        if self.exchange_mode and EXCHANGE_X <= x <= EXCHANGE_X + EXCHANGE_W:
+        # Exchange section inside hand panel
+        if self.exchange_mode and self.hand_x <= x <= self.hand_x + self.hand_w:
             ei = self._exchange_idx_at(x, y)
             if ei is not None:
                 self.selected_exchange_card_idx = ei
@@ -214,8 +255,7 @@ class CastelWindow:
                     self._perform_exchange(current)
                 return
 
-        # Hand card click/drag
-        if HAND_X <= x <= HAND_X + HAND_W and INNER_Y <= y <= SCREEN_H - BTM_H:
+        if self.hand_x <= x <= self.hand_x + self.hand_w and TOP_H <= y <= self.sh - BTM_H:
             idx = self._hand_idx_at(x, y, current)
             if idx is not None and 0 <= idx < len(current.hand):
                 card = current.hand[idx]
@@ -226,11 +266,11 @@ class CastelWindow:
                     if self.selected_exchange_card_idx is not None:
                         self._perform_exchange(current)
                     return
-                col = idx % 5
-                row = idx // 5
-                cx = HAND_X + 10 + col * (CELL + 8) + CELL // 2
-                cy = INNER_Y + 32 + row * (CELL + 8) + CELL // 2
-                self.drag_offset = (x - cx, y - cy)
+                cw = self.cell; gap = 8
+                col = idx % 5; row = idx // 5
+                cx_ = self.hand_x + 10 + col * (cw + gap) + cw // 2
+                cy_ = TOP_H + 32 + row * (cw + gap) + cw // 2
+                self.drag_offset = (x - cx_, y - cy_)
                 self.dragging_card = card
 
     def _handle_button(self, name, player):
@@ -273,28 +313,26 @@ class CastelWindow:
         x, y = pos
         placed = False
 
-        # Castle grid (cour + tiles)
+        # Castle grid (includes cour, tiles, siege slots, and nearby exterior)
         grid = self._grid_from_px(x, y)
         if grid is not None:
             placed = self._try_place(current, self.dragging_card, grid)
 
-        # Exterior strip
-        if not placed and self._in_exterior_strip(x, y):
-            cw = CELL
-            gap = 4
-            cols = (CASTLE_W - 10) // (cw + gap)
-            lx = x - (CASTLE_X + 5)
-            ly = y - EXTERIOR_Y
-            col = max(0, lx // (cw + gap))
-            row = max(0, ly // (cw + gap))
-            sorted_ext = sorted(self.game.board.exterieur.keys())
-            idx = row * cols + col
-            if idx < len(sorted_ext):
-                placed = self._try_place(current, self.dragging_card, sorted_ext[idx])
-            if not placed:
-                free = self._next_ext_pos()
-                if free:
-                    placed = self._try_place(current, self.dragging_card, free)
+        # Exterior strip (non-siege exterior cards)
+        if not placed and self._in_ext_strip(x, y):
+            # Try existing exterior positions first (drop on an occupied slot = invalid)
+            free = self._ext_strip_pos_from_px(x, y)
+            # Check if already occupied; if so find next free position
+            if free in self.game.board.exterieur:
+                for bx in range(5, 50):
+                    for by2 in range(6, 12):
+                        if (bx, by2) not in self.game.board.exterieur:
+                            free = (bx, by2)
+                            break
+                    else:
+                        continue
+                    break
+            placed = self._try_place(current, self.dragging_card, free)
 
         if not placed:
             self.add_log(f"Placement invalide: {self.dragging_card.nom}")
@@ -372,7 +410,6 @@ class CastelWindow:
         self._draw_header()
         self._draw_left_panel()
         self._draw_castle_panel()
-        self._draw_exchange_panel()
         self._draw_log_panel()
         self._draw_hand_panel()
         if self.dragging_card:
@@ -386,7 +423,7 @@ class CastelWindow:
     def _draw_header(self):
         current = self.game.players[self.game.current_player]
         title = self.font_title.render(f"CASTEL  -  Tour {self.game.turn}", True, (220, 220, 220))
-        self.screen.blit(title, (HAND_X + 10, 10))
+        self.screen.blit(title, (self.hand_x + 10, 10))
         who = "HUMAIN" if current.is_human else f"IA {self.game.current_player+1}"
         color = (80, 220, 80) if current.is_human else (220, 100, 100)
         info = self.font.render(
@@ -394,134 +431,164 @@ class CastelWindow:
             f"   Actions: {self.game.actions_remaining}/2"
             f"   Main: {len(current.hand)}  Pioche: {len(current.deck)}",
             True, color)
-        self.screen.blit(info, (HAND_X + 10, 46))
+        self.screen.blit(info, (self.hand_x + 10, 46))
 
     def _draw_footer(self):
         current = self.game.players[self.game.current_player]
         if current.is_human:
-            hint = "Glisser carte sur plateau pour placer  |  Piocher / Echanger / Passer  |  ESC: Quitter"
+            hint = "Glisser carte sur le plateau pour la placer  |  Piocher / Echanger / Passer  |  ESC: Quitter"
         else:
             hint = "Tour de l ordinateur...   |   ESC: Quitter"
-        self.screen.blit(self.font_small.render(hint, True, (90, 90, 110)), (10, SCREEN_H - BTM_H + 7))
+        self.screen.blit(self.font_small.render(hint, True, (90, 90, 110)), (10, self.sh - BTM_H + 7))
 
     def _draw_left_panel(self):
-        r = pygame.Rect(LEFT_X + 3, INNER_Y + 3, LEFT_W - 6, INNER_H - 6)
+        r = pygame.Rect(0 + 3, TOP_H + 3, LEFT_W - 6, self.inner_h - 6)
         pygame.draw.rect(self.screen, (26, 26, 38), r)
         pygame.draw.rect(self.screen, (70, 70, 100), r, 1)
-        y = INNER_Y + 12
-        self.screen.blit(self.font_small.render("PIOCHES", True, (150, 150, 185)), (LEFT_X + 7, y))
+        y = TOP_H + 12
+        self.screen.blit(self.font_small.render("PIOCHES", True, (150, 150, 185)), (0 + 7, y))
         y += 20
         for i, p in enumerate(self.game.players):
             active = (i == self.game.current_player)
             color = (80, 210, 80) if active else (140, 140, 160)
             icon = ">" if active else " "
-            self.screen.blit(self.font_small.render(f"{icon} J{i+1}", True, color), (LEFT_X + 5, y))
+            self.screen.blit(self.font_small.render(f"{icon} J{i+1}", True, color), (0 + 5, y))
             y += 15
             self.screen.blit(self.font_small.render(f"  M:{len(p.hand)} P:{len(p.deck)}", True, (120, 120, 140)),
-                             (LEFT_X + 5, y))
-            y += 18
+                             (0 + 5, y))
+            y += 20
+
+    # -------------------------------------------------------------------------
+    # Castle panel
+    # -------------------------------------------------------------------------
 
     def _draw_castle_panel(self):
-        r = pygame.Rect(CASTLE_X + 3, INNER_Y + 3, CASTLE_W - 6, INNER_H - 6)
+        r = pygame.Rect(self.castle_x + 3, TOP_H + 3, self.castle_w - 6, self.inner_h - 6)
         pygame.draw.rect(self.screen, (23, 23, 36), r)
         pygame.draw.rect(self.screen, (70, 70, 100), r, 1)
 
+        dragging_siege = self._is_siege_card(self.dragging_card)
+        dragging_ext   = (self.dragging_card and not dragging_siege
+                          and "hors les murs" in getattr(self.dragging_card, "lieu", "").lower())
+
+        # Draw siege slot cells (highlight when dragging siege engine)
+        for slot in SIEGE_SLOTS:
+            sx, sy = self._castle_px(*slot)
+            occupied = slot in self.game.board.exterieur
+            if dragging_siege and not occupied:
+                slot_bg = (30, 60, 30)
+                border  = (55, 155, 55)
+                bw = 2
+            elif occupied:
+                slot_bg = (22, 45, 22)
+                border  = (55, 125, 55)
+                bw = 1
+            else:
+                slot_bg = (20, 30, 20)
+                border  = (40, 80, 40)
+                bw = 1
+            pygame.draw.rect(self.screen, slot_bg, (sx, sy, self.cell, self.cell))
+            pygame.draw.rect(self.screen, border, (sx, sy, self.cell, self.cell), bw)
+            if occupied:
+                self._draw_card_on_cell(self.game.board.exterieur[slot], sx, sy, self.cell)
+            else:
+                lbl = self.font_small.render("Engin", True, (50, 100, 50))
+                self.screen.blit(lbl, (sx + (self.cell - lbl.get_width()) // 2, sy + self.cell // 2 - 7))
+
         # Courtyard background
         pygame.draw.rect(self.screen, (200, 185, 155),
-                         (CASTLE_ORIGIN_X, CASTLE_ORIGIN_Y, 4 * CELL, 4 * CELL))
+                         (self.castle_origin_x, self.castle_origin_y, 4 * self.cell, 4 * self.cell))
         pygame.draw.rect(self.screen, (140, 115, 75),
-                         (CASTLE_ORIGIN_X, CASTLE_ORIGIN_Y, 4 * CELL, 4 * CELL), 2)
+                         (self.castle_origin_x, self.castle_origin_y, 4 * self.cell, 4 * self.cell), 2)
 
         # Castle tiles (tours + remparts)
         for (tx, ty), tile in self.game.board.tiles.items():
             px, py = self._castle_px(tx, ty)
             img_key = "Tour" if tile["type"] == "tour" else "Rempart"
             img = self.game.board.card_images.get(img_key)
-            bg = (195, 165, 105) if tile["type"] == "tour" else (165, 145, 105)
+            bg  = (195, 165, 105) if tile["type"] == "tour" else (165, 145, 105)
             if img:
-                cropped = self._fit_image(img, CELL, CELL)
+                cropped = self._fit_image(img, self.cell, self.cell)
                 rot = tile.get("rotation", 0)
                 if rot:
                     cropped = pygame.transform.rotate(cropped, rot * 90)
                 self.screen.blit(cropped, (px, py))
             else:
-                pygame.draw.rect(self.screen, bg, (px, py, CELL, CELL))
-                pygame.draw.rect(self.screen, (100, 80, 50), (px, py, CELL, CELL), 1)
+                pygame.draw.rect(self.screen, bg, (px, py, self.cell, self.cell))
+                pygame.draw.rect(self.screen, (100, 80, 50), (px, py, self.cell, self.cell), 1)
             if tile["card"]:
-                self._draw_card_on_cell(tile["card"], px, py, CELL)
+                self._draw_card_on_cell(tile["card"], px, py, self.cell)
 
-        # Cour grid + cards
+        # Cour grid cells + cards (+ Chevalier stacking)
         for cy in range(4):
             for cx in range(4):
                 px, py = self._castle_px(cx, cy)
-                pygame.draw.rect(self.screen, (135, 110, 70), (px, py, CELL, CELL), 1)
-                if self.game.board.cour[cy][cx]:
-                    self._draw_card_on_cell(self.game.board.cour[cy][cx], px, py, CELL)
+                pygame.draw.rect(self.screen, (135, 110, 70), (px, py, self.cell, self.cell), 1)
+                card = self.game.board.cour[cy][cx]
+                if card:
+                    self._draw_cour_card(card, px, py)
 
-        # Exterior strip label
-        lbl = self.font_small.render("Hors les murs (zone verte) - glisser ici les cartes VERTES", True, (90, 180, 90))
-        self.screen.blit(lbl, (CASTLE_X + 8, EXTERIOR_LABEL_Y))
+        # Exterior strip (non-siege exterior cards)
+        self._draw_exterior_strip(dragging_ext)
 
-        # Exterior strip background
-        ext_r = pygame.Rect(CASTLE_X + 4, EXTERIOR_Y, CASTLE_W - 8, EXTERIOR_H - 2)
-        pygame.draw.rect(self.screen, (18, 38, 18), ext_r)
-        pygame.draw.rect(self.screen, (55, 125, 55), ext_r, 1)
+    def _draw_cour_card(self, card, px, py):
+        """Draw a cour card, handling Chevalier stacking."""
+        protected = getattr(card, "protects", None)
+        if protected:
+            # Protected card drawn slightly offset (bottom-right corner visible)
+            offset = 12
+            inner = self.cell - offset - 4
+            self._draw_card_on_cell(protected, px + offset, py + offset, inner)
+            # Chevalier on top (slightly smaller to reveal corner of protected card)
+            self._draw_card_on_cell(card, px, py, self.cell - offset)
+            # Shield icon to indicate protection
+            pygame.draw.circle(self.screen, (100, 155, 255), (px + self.cell - 8, py + 8), 7)
+            pygame.draw.circle(self.screen, (200, 220, 255), (px + self.cell - 8, py + 8), 7, 1)
+        else:
+            self._draw_card_on_cell(card, px, py, self.cell)
 
-        # Exterior cards
-        cw = CELL
-        gap = 4
-        cols = (CASTLE_W - 10) // (cw + gap)
-        for idx, (pos, card) in enumerate(sorted(self.game.board.exterieur.items())):
+    def _draw_exterior_strip(self, highlight):
+        # Label
+        lbl_y = self.castle_grid_bottom + 4
+        lbl = self.font_small.render("Hors les murs (drag cartes VERTES ici)", True, (80, 175, 80))
+        self.screen.blit(lbl, (self.castle_x + 8, lbl_y))
+
+        # Strip background
+        strip_r = pygame.Rect(self.castle_x + 4, self.ext_strip_y, self.castle_w - 8, self.ext_strip_h - 2)
+        strip_bg = (22, 42, 22) if highlight else (18, 36, 18)
+        strip_brd = (70, 150, 70) if highlight else (45, 100, 45)
+        pygame.draw.rect(self.screen, strip_bg, strip_r)
+        pygame.draw.rect(self.screen, strip_brd, strip_r, 1)
+
+        # Exterior cards (non-siege: positions where y>=6)
+        cw = self.cell; gap = 4
+        cols = (self.castle_w - 10) // (cw + gap)
+        ext_cards = sorted(
+            ((pos, c) for pos, c in self.game.board.exterieur.items()
+             if pos not in SIEGE_SLOTS),
+            key=lambda t: t[0]
+        )
+        for idx, (pos, card) in enumerate(ext_cards):
             col = idx % cols
             row = idx // cols
-            ex = CASTLE_X + 5 + col * (cw + gap)
-            ey = EXTERIOR_Y + 3 + row * (cw + gap)
-            if ey + cw > EXTERIOR_Y + EXTERIOR_H:
+            ex = self.castle_x + 5 + col * (cw + gap)
+            ey = self.ext_strip_y + 3 + row * (cw + gap)
+            if ey + cw > self.ext_strip_y + self.ext_strip_h:
                 break
             self._draw_card_on_cell(card, ex, ey, cw)
 
-    def _draw_exchange_panel(self):
-        r = pygame.Rect(EXCHANGE_X + 3, INNER_Y + 3, EXCHANGE_W - 6, INNER_H - 6)
-        pygame.draw.rect(self.screen, (26, 23, 38), r)
-        pygame.draw.rect(self.screen, (70, 70, 100), r, 1)
-        self.screen.blit(
-            self.font_small.render(f"ECHANGE ({len(self.game.exchange)})", True, (170, 165, 200)),
-            (EXCHANGE_X + 10, INNER_Y + 10))
-
-        cw, ch, gap = 52, 66, 4
-        cols = 4
-        ey = INNER_Y + 26
-        for i, card in enumerate(self.game.exchange):
-            col = i % cols
-            row = i // cols
-            cx_ = EXCHANGE_X + 8 + col * (cw + gap)
-            cy_ = ey + row * (ch + gap)
-            if cy_ + ch > INNER_Y + INNER_H - 6:
-                break
-            selected = (self.exchange_mode and self.selected_exchange_card_idx == i)
-            border = (255, 200, 0) if selected else (75, 75, 115)
-            bw = 2 if selected else 1
-            img = self.game.board.card_images.get(card.nom)
-            if img:
-                fitted = self._fit_image(img, cw - 2, ch - 2)
-                fw, fh = fitted.get_size()
-                pygame.draw.rect(self.screen, border, (cx_, cy_, cw, ch), bw)
-                self.screen.blit(fitted, (cx_ + (cw - fw) // 2, cy_ + (ch - fh) // 2))
-            else:
-                pygame.draw.rect(self.screen, self._card_color(card), (cx_, cy_, cw, ch))
-                pygame.draw.rect(self.screen, border, (cx_, cy_, cw, ch), bw)
-                self.screen.blit(
-                    self.font_small.render(card.nom[:7], True, (220, 220, 220)),
-                    (cx_ + 2, cy_ + ch // 2 - 7))
+    # -------------------------------------------------------------------------
+    # Log panel
+    # -------------------------------------------------------------------------
 
     def _draw_log_panel(self):
-        r = pygame.Rect(LOG_X + 3, INNER_Y + 3, LOG_W - 6, INNER_H - 6)
+        r = pygame.Rect(self.log_x + 3, TOP_H + 3, LOG_W - 6, self.inner_h - 6)
         pygame.draw.rect(self.screen, (20, 20, 34), r)
         pygame.draw.rect(self.screen, (70, 70, 100), r, 1)
-        self.screen.blit(self.font_small.render("JOURNAL", True, (150, 150, 185)), (LOG_X + 10, INNER_Y + 10))
+        self.screen.blit(self.font_small.render("JOURNAL", True, (150, 150, 185)), (self.log_x + 10, TOP_H + 10))
 
-        line_h = 15
-        y = INNER_Y + 26
+        line_h = 14
+        y = TOP_H + 26
         max_chars = (LOG_W - 18) // 7
         for msg in self.action_log[-(self.max_log_lines):]:
             trunc = msg[:max_chars]
@@ -533,49 +600,68 @@ class CastelWindow:
                 col = (180, 180, 100)
             else:
                 col = (150, 195, 155)
-            self.screen.blit(self.font_small.render(trunc, True, col), (LOG_X + 8, y))
+            self.screen.blit(self.font_small.render(trunc, True, col), (self.log_x + 8, y))
             y += line_h
-            if y > INNER_Y + INNER_H - 10:
+            if y > TOP_H + self.inner_h - 10:
                 break
+
+    # -------------------------------------------------------------------------
+    # Hand panel  (cards + action buttons + exchange section)
+    # -------------------------------------------------------------------------
 
     def _draw_hand_panel(self):
         current = self.game.players[self.game.current_player]
-        r = pygame.Rect(HAND_X + 3, INNER_Y + 3, HAND_W - 6, INNER_H - 6)
+
+        r = pygame.Rect(self.hand_x + 3, TOP_H + 3, self.hand_w - 6, self.inner_h - 6)
         pygame.draw.rect(self.screen, (23, 23, 36), r)
         pygame.draw.rect(self.screen, (95, 95, 135), r, 2)
 
         who = "VOTRE MAIN" if current.is_human else f"IA {self.game.current_player+1}"
         color = (90, 215, 90) if current.is_human else (215, 95, 95)
-        self.screen.blit(self.font.render(who, True, color), (HAND_X + 12, INNER_Y + 10))
+        self.screen.blit(self.font.render(who, True, color), (self.hand_x + 12, TOP_H + 10))
 
         if not current.is_human:
             self.screen.blit(
                 self.font_small.render("Tour de l ordinateur en cours...", True, (155, 135, 95)),
-                (HAND_X + 12, INNER_Y + 34))
+                (self.hand_x + 12, TOP_H + 34))
             return
 
-        bh = 36
-        by = INNER_Y + INNER_H - bh - 10
-        pygame.draw.line(self.screen, (75, 75, 105),
-                         (HAND_X + 8, by - 5), (HAND_X + HAND_W - 8, by - 5))
-        self._draw_hand_buttons(current, by)
+        # --- Compute layout heights ---
+        bh = HAND_BTN_H
+        btn_y = TOP_H + self.inner_h - bh - 10
 
-        # Cards
-        cw = CELL
-        gap = 8
-        cols = 5
-        start_y = INNER_Y + 32
-        max_rows = max(1, (by - 6 - start_y) // (cw + gap))
+        exch_rows = max(1, (len(self.game.exchange) + self.exch_cols - 1) // self.exch_cols)
+        exch_h    = exch_rows * (self.cell + EXCH_GAP) + 24   # 24 = title line
+        exch_y    = btn_y - 4 - exch_h
+
+        hand_cards_bottom = exch_y - 8
+        hand_cards_top    = TOP_H + 32
+
+        # --- Separators ---
+        pygame.draw.line(self.screen, (70, 70, 105),
+                         (self.hand_x + 8, exch_y - 4), (self.hand_x + self.hand_w - 8, exch_y - 4))
+        pygame.draw.line(self.screen, (70, 70, 105),
+                         (self.hand_x + 8, btn_y - 4), (self.hand_x + self.hand_w - 8, btn_y - 4))
+
+        # --- Action buttons ---
+        self._draw_hand_buttons(current, btn_y)
+
+        # --- Exchange section ---
+        self._draw_exchange_in_hand(exch_y, exch_rows)
+
+        # --- Hand cards ---
+        cw = self.cell; gap = 8; cols = 5
+        max_rows = max(1, (hand_cards_bottom - hand_cards_top) // (cw + gap))
 
         for i, card in enumerate(current.hand):
             col = i % cols
             row = i // cols
             if row >= max_rows:
                 break
-            cx_ = HAND_X + 10 + col * (cw + gap)
-            cy_ = start_y + row * (cw + gap)
-            selected = (card is self.selected_card)
-            exch_sel = (self.exchange_mode and self.selected_hand_card_idx == i)
+            cx_ = self.hand_x + 10 + col * (cw + gap)
+            cy_ = hand_cards_top + row * (cw + gap)
+            selected  = (card is self.selected_card)
+            exch_sel  = (self.exchange_mode and self.selected_hand_card_idx == i)
             border = (0, 255, 70) if selected else (255, 200, 0) if exch_sel else (95, 95, 135)
             bw = 3 if (selected or exch_sel) else 1
             img = self.game.board.card_images.get(card.nom)
@@ -587,14 +673,41 @@ class CastelWindow:
             else:
                 pygame.draw.rect(self.screen, self._card_color(card), (cx_, cy_, cw, cw))
                 pygame.draw.rect(self.screen, border, (cx_, cy_, cw, cw), bw)
-                self.screen.blit(
-                    self.font_small.render(card.nom[:9], True, (220, 220, 220)),
-                    (cx_ + 3, cy_ + cw // 2 - 7))
+                self.screen.blit(self.font_small.render(card.nom[:9], True, (220, 220, 220)),
+                                 (cx_ + 3, cy_ + cw // 2 - 7))
+            # Zone colour dot
             pygame.draw.circle(self.screen, self._card_color(card), (cx_ + cw - 8, cy_ + 8), 5)
 
-    def _draw_hand_buttons(self, player, by):
-        bw, bh = 118, 36
-        gap = 10
+    def _draw_exchange_in_hand(self, exch_y, exch_rows):
+        """Draw the exchange section inside the hand panel."""
+        self.screen.blit(
+            self.font_small.render(f"ECHANGE ({len(self.game.exchange)})", True, (155, 150, 195)),
+            (self.hand_x + 10, exch_y + 4))
+
+        for i, card in enumerate(self.game.exchange):
+            col = i % self.exch_cols
+            row = i // self.exch_cols
+            if row >= 4:
+                break
+            cx_ = self.hand_x + 10 + col * (self.cell + EXCH_GAP)
+            cy_ = exch_y + 24 + row * (self.cell + EXCH_GAP)
+            selected = (self.exchange_mode and self.selected_exchange_card_idx == i)
+            border = (255, 200, 0) if selected else (75, 75, 115)
+            bw = 2 if selected else 1
+            img = self.game.board.card_images.get(card.nom)
+            if img:
+                fitted = self._fit_image(img, self.cell - 2, self.cell - 2)
+                fw, fh = fitted.get_size()
+                pygame.draw.rect(self.screen, border, (cx_, cy_, self.cell, self.cell), bw)
+                self.screen.blit(fitted, (cx_ + (self.cell - fw) // 2, cy_ + (self.cell - fh) // 2))
+            else:
+                pygame.draw.rect(self.screen, self._card_color(card), (cx_, cy_, self.cell, self.cell))
+                pygame.draw.rect(self.screen, border, (cx_, cy_, self.cell, self.cell), bw)
+                self.screen.blit(self.font_small.render(card.nom[:7], True, (220, 220, 220)),
+                                 (cx_ + 2, cy_ + self.cell // 2 - 7))
+
+    def _draw_hand_buttons(self, player, btn_y):
+        bw = 118; bh = HAND_BTN_H; gap = HAND_BTN_GAP
         defs = {
             "draw":     ("Piocher",  (38, 82, 38),  (78, 175, 78),  bool(player.deck)),
             "exchange": ("Echanger", (38, 38, 82),  (78, 78, 175),  bool(self.game.exchange and player.hand)),
@@ -612,11 +725,15 @@ class CastelWindow:
         acts = self.game.actions_remaining
         self.screen.blit(
             self.font_small.render(f"Actions restantes: {acts}/2", True, (175, 175, 95)),
-            (HAND_X + 10, by + bh + 4))
+            (self.hand_x + 10, btn_y + bh + 4))
+
+    # -------------------------------------------------------------------------
+    # Dragged card
+    # -------------------------------------------------------------------------
 
     def _draw_dragged_card(self):
         card = self.dragging_card
-        size = CELL + 14
+        size = self.cell + 14
         dx = self.mouse_pos[0] - size // 2
         dy = self.mouse_pos[1] - size // 2
         img = self.game.board.card_images.get(card.nom)
@@ -632,15 +749,23 @@ class CastelWindow:
             self.screen.blit(s, (dx, dy))
         pygame.draw.rect(self.screen, self._card_color(card), (dx, dy, size, size), 2)
 
+    # -------------------------------------------------------------------------
+    # Tooltip
+    # -------------------------------------------------------------------------
+
     def _update_tooltip(self):
         mx, my = self.mouse_pos
         self.tooltip_card = None
         current = self.game.players[self.game.current_player]
 
-        if current.is_human and HAND_X <= mx <= HAND_X + HAND_W:
+        if current.is_human and self.hand_x <= mx <= self.hand_x + self.hand_w:
             idx = self._hand_idx_at(mx, my, current)
             if idx is not None and 0 <= idx < len(current.hand):
                 self.tooltip_card = current.hand[idx]
+                return
+            ei = self._exchange_idx_at(mx, my)
+            if ei is not None and 0 <= ei < len(self.game.exchange):
+                self.tooltip_card = self.game.exchange[ei]
                 return
 
         grid = self._grid_from_px(mx, my)
@@ -652,11 +777,8 @@ class CastelWindow:
             if (tx, ty) in self.game.board.tiles and self.game.board.tiles[(tx, ty)]["card"]:
                 self.tooltip_card = self.game.board.tiles[(tx, ty)]["card"]
                 return
-
-        if EXCHANGE_X <= mx <= EXCHANGE_X + EXCHANGE_W:
-            idx = self._exchange_idx_at(mx, my)
-            if idx is not None and 0 <= idx < len(self.game.exchange):
-                self.tooltip_card = self.game.exchange[idx]
+            if (tx, ty) in self.game.board.exterieur:
+                self.tooltip_card = self.game.board.exterieur[(tx, ty)]
 
     def _draw_tooltip(self):
         if not self.tooltip_card:
@@ -672,8 +794,8 @@ class CastelWindow:
         tw = max(200, max(len(l) for l in lines) * 8 + 20)
         th = len(lines) * 18 + 14
         mx, my = self.mouse_pos
-        tx = mx + 15 if mx + 15 + tw < SCREEN_W else mx - tw - 15
-        ty = my + 15 if my + 15 + th < SCREEN_H else my - th - 15
+        tx = mx + 15 if mx + 15 + tw < self.sw else mx - tw - 15
+        ty = my + 15 if my + 15 + th < self.sh else my - th - 15
 
         pygame.draw.rect(self.screen, (38, 38, 55), (tx, ty, tw, th))
         pygame.draw.rect(self.screen, (145, 145, 195), (tx, ty, tw, th), 1)
@@ -682,8 +804,12 @@ class CastelWindow:
             col = (255, 235, 90) if i == 0 else (210, 210, 210)
             self.screen.blit(self.font_small.render(line, True, col), (tx + 8, ty + 7 + i * 18))
 
+    # -------------------------------------------------------------------------
+    # Win overlay
+    # -------------------------------------------------------------------------
+
     def _draw_win_overlay(self):
-        overlay = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        overlay = pygame.Surface((self.sw, self.sh), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 165))
         self.screen.blit(overlay, (0, 0))
 
@@ -692,9 +818,13 @@ class CastelWindow:
         color = (255, 220, 50) if is_human else (220, 100, 80)
 
         title = self.font_big.render(title_txt, True, color)
-        self.screen.blit(title, (SCREEN_W // 2 - title.get_width() // 2, SCREEN_H // 2 - 55))
+        self.screen.blit(title, (self.sw // 2 - title.get_width() // 2, self.sh // 2 - 55))
         sub = self.font.render("Appuyez sur ESC pour quitter", True, (200, 200, 200))
-        self.screen.blit(sub, (SCREEN_W // 2 - sub.get_width() // 2, SCREEN_H // 2 + 28))
+        self.screen.blit(sub, (self.sw // 2 - sub.get_width() // 2, self.sh // 2 + 28))
+
+    # -------------------------------------------------------------------------
+    # Main loop
+    # -------------------------------------------------------------------------
 
     def run(self):
         while self.running:
