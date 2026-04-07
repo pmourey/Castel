@@ -3,7 +3,7 @@ import pygame
 # ============================================================================
 # FIXED LAYOUT CONSTANTS  (never change with window size)
 # ============================================================================
-TOP_H        = 75    # header height
+TOP_H        = 42    # compact header (single line)
 BTM_H        = 26    # footer height
 LEFT_W       = 130   # player-pioche panel (fixed)
 LOG_W        = 200   # action-log panel (fixed)
@@ -84,11 +84,14 @@ class CastelWindow:
         self.ext_strip_h = h - BTM_H - self.ext_strip_y
 
         # Exchange cards: compute columns based on available hand width
-        self.exch_cols = max(3, (self.hand_w - 20) // (c + EXCH_GAP))
-        # Hand/exchange cards: compute size constrained by both castle cell and hand panel width
-        horiz_limit = max(48, int((self.hand_w - 20 - (HAND_CARD_COLS - 1) * HAND_CARD_GAP) / HAND_CARD_COLS))
-        vert_limit  = int(self.cell * 1.5)
-        self.hand_card_size = max(56, min(horiz_limit, vert_limit))
+        # hand_card_size: fill available height while respecting horizontal limit
+        hand_area_h = h - TOP_H - BTM_H - HAND_BTN_H - 10 - 32   # inner minus buttons minus title
+        # Allocate ~40% of height to hand, ~40% to exchange, 20% to buttons/title
+        slot_v = max(48, (hand_area_h * 45 // 100) // 3)          # fits 3 hand rows in 45% height
+        horiz_limit = max(48, (self.hand_w - 20 - (HAND_CARD_COLS - 1) * HAND_CARD_GAP) // HAND_CARD_COLS)
+        self.hand_card_size = min(horiz_limit, slot_v)
+        hs = self.hand_card_size
+        self.exch_cols = max(3, (self.hand_w - 20) // (hs + EXCH_GAP))
 
     def _on_resize(self, w, h):
         """Handle window resize: recompute layout and recreate buttons."""
@@ -149,7 +152,7 @@ class CastelWindow:
         bh = HAND_BTN_H
         btn_y = TOP_H + self.inner_h - bh - 10
         exch_rows = max(1, (len(self.game.exchange) + self.exch_cols - 1) // self.exch_cols)
-        exch_h = exch_rows * (self.cell + EXCH_GAP) + 24   # title + rows
+        exch_h = exch_rows * (self.hand_card_size + EXCH_GAP) + 24   # title + rows
         exch_y = btn_y - 4 - exch_h
         hand_cards_bottom = exch_y - 6
 
@@ -169,7 +172,7 @@ class CastelWindow:
         bh = HAND_BTN_H
         btn_y = TOP_H + self.inner_h - bh - 10
         exch_rows = max(1, (len(self.game.exchange) + self.exch_cols - 1) // self.exch_cols)
-        exch_h = exch_rows * (self.cell + EXCH_GAP) + 24
+        exch_h = exch_rows * (self.hand_card_size + EXCH_GAP) + 24
         exch_y = btn_y - 4 - exch_h
 
         lx = x - (self.hand_x + 10)
@@ -427,16 +430,19 @@ class CastelWindow:
 
     def _draw_header(self):
         current = self.game.players[self.game.current_player]
-        title = self.font_title.render(f"CASTEL  -  Tour {self.game.turn}", True, (220, 220, 220))
-        self.screen.blit(title, (self.hand_x + 10, 10))
-        who = "HUMAIN" if current.is_human else f"IA {self.game.current_player+1}"
+        who   = "HUMAIN" if current.is_human else f"IA {self.game.current_player+1}"
         color = (80, 220, 80) if current.is_human else (220, 100, 100)
+        # Left side: title
+        title = self.font_title.render(f"CASTEL", True, (220, 200, 80))
+        self.screen.blit(title, (LEFT_W + 8, 8))
+        # Centre-left: tour/player/actions
         info = self.font.render(
-            f"Joueur {self.game.current_player+1}/{len(self.game.players)}  {who}"
-            f"   Actions: {self.game.actions_remaining}/2"
-            f"   Main: {len(current.hand)}  Pioche: {len(current.deck)}",
+            f"Tour {self.game.turn}   "
+            f"J{self.game.current_player+1}/{len(self.game.players)} {who}   "
+            f"Actions: {self.game.actions_remaining}/2   "
+            f"Main: {len(current.hand)}  Pioche: {len(current.deck)}",
             True, color)
-        self.screen.blit(info, (self.hand_x + 10, 46))
+        self.screen.blit(info, (self.log_x + 8, 12))
 
     def _draw_footer(self):
         current = self.game.players[self.game.current_player]
@@ -640,7 +646,7 @@ class CastelWindow:
         btn_y = TOP_H + self.inner_h - bh - 10
 
         exch_rows = max(1, (len(self.game.exchange) + self.exch_cols - 1) // self.exch_cols)
-        exch_h    = exch_rows * (self.cell + EXCH_GAP) + 24   # 24 = title line
+        exch_h    = exch_rows * (self.hand_card_size + EXCH_GAP) + 24   # 24 = title line
         exch_y    = btn_y - 4 - exch_h
 
         hand_cards_bottom = exch_y - 8
@@ -689,6 +695,7 @@ class CastelWindow:
 
     def _draw_exchange_in_hand(self, exch_y, exch_rows):
         """Draw the exchange section inside the hand panel."""
+        hs = self.hand_card_size
         self.screen.blit(
             self.font_small.render(f"ECHANGE ({len(self.game.exchange)})", True, (155, 150, 195)),
             (self.hand_x + 10, exch_y + 4))
@@ -698,22 +705,22 @@ class CastelWindow:
             row = i // self.exch_cols
             if row >= 4:
                 break
-            cx_ = self.hand_x + 10 + col * (self.cell + EXCH_GAP)
-            cy_ = exch_y + 24 + row * (self.cell + EXCH_GAP)
+            cx_ = self.hand_x + 10 + col * (hs + EXCH_GAP)
+            cy_ = exch_y + 24 + row * (hs + EXCH_GAP)
             selected = (self.exchange_mode and self.selected_exchange_card_idx == i)
             border = (255, 200, 0) if selected else (75, 75, 115)
             bw = 2 if selected else 1
             img = self.game.board.card_images.get(card.nom)
             if img:
-                fitted = self._fit_image(img, self.cell - 2, self.cell - 2)
+                fitted = self._fit_image(img, hs - 2, hs - 2)
                 fw, fh = fitted.get_size()
-                pygame.draw.rect(self.screen, border, (cx_, cy_, self.cell, self.cell), bw)
-                self.screen.blit(fitted, (cx_ + (self.cell - fw) // 2, cy_ + (self.cell - fh) // 2))
+                pygame.draw.rect(self.screen, border, (cx_, cy_, hs, hs), bw)
+                self.screen.blit(fitted, (cx_ + (hs - fw) // 2, cy_ + (hs - fh) // 2))
             else:
-                pygame.draw.rect(self.screen, self._card_color(card), (cx_, cy_, self.cell, self.cell))
-                pygame.draw.rect(self.screen, border, (cx_, cy_, self.cell, self.cell), bw)
+                pygame.draw.rect(self.screen, self._card_color(card), (cx_, cy_, hs, hs))
+                pygame.draw.rect(self.screen, border, (cx_, cy_, hs, hs), bw)
                 self.screen.blit(self.font_small.render(card.nom[:7], True, (220, 220, 220)),
-                                 (cx_ + 2, cy_ + self.cell // 2 - 7))
+                                 (cx_ + 2, cy_ + hs // 2 - 7))
 
     def _draw_hand_buttons(self, player, btn_y):
         bw = 118; bh = HAND_BTN_H; gap = HAND_BTN_GAP
