@@ -54,6 +54,7 @@ class CastelWindow:
         self.action_buttons             = {}
         self.game_over                  = False
         self.winner                     = None
+        self.advanced_tooltip           = False
         self._create_action_buttons()
 
 
@@ -200,6 +201,27 @@ class CastelWindow:
         # Use exterior positions starting at x=5, y=6 to avoid conflict with siege slots
         return (5 + col, 6 + row)
 
+    def _ext_card_at(self, mx, my):
+        """Return the exterior-strip card under pixel (mx, my), or None."""
+        if not self._in_ext_strip(mx, my):
+            return None
+        cw = self.cell; gap = 4
+        ext_cards = sorted(
+            [(pos, c) for pos, c in self.game.board.exterieur.items() if pos not in SIEGE_SLOTS],
+            key=lambda t: t[0]
+        )
+        cols = (self.castle_w - 10) // (cw + gap)
+        for idx, (pos, card) in enumerate(ext_cards):
+            col = idx % cols
+            row = idx // cols
+            ex = self.castle_x + 5 + col * (cw + gap)
+            ey = self.ext_strip_y + 3 + row * (cw + gap)
+            if ey + cw > self.ext_strip_y + self.ext_strip_h:
+                break
+            if ex <= mx < ex + cw and ey <= my < ey + cw:
+                return card
+        return None
+
     def _is_siege_card(self, card):
         return card is not None and card.nom == "Engin_de_siege"
 
@@ -217,6 +239,9 @@ class CastelWindow:
             "exchange": pygame.Rect(self.hand_x + 10 + bw + gap,    by, bw, bh),
             "skip":     pygame.Rect(self.hand_x + 10 + 2*(bw+gap),  by, bw, bh),
         }
+        # Tooltip mode toggle (small switch, top-right of hand panel)
+        sw = 110; sh_ = 22
+        self.tooltip_toggle_rect = pygame.Rect(self.hand_x + self.hand_w - sw - 8, 10, sw, sh_)
 
     # -------------------------------------------------------------------------
     # Event handling
@@ -247,6 +272,10 @@ class CastelWindow:
         if not current.is_human:
             return
         x, y = pos
+
+        if hasattr(self, "tooltip_toggle_rect") and self.tooltip_toggle_rect.collidepoint(x, y):
+            self.advanced_tooltip = not self.advanced_tooltip
+            return
 
         for name, rect in self.action_buttons.items():
             if rect.collidepoint(x, y):
@@ -443,6 +472,17 @@ class CastelWindow:
             f"Main: {len(current.hand)}  Pioche: {len(current.deck)}",
             True, color)
         self.screen.blit(info, (self.log_x + 8, 12))
+        # Tooltip mode toggle switch
+        if hasattr(self, "tooltip_toggle_rect"):
+            r = self.tooltip_toggle_rect
+            bg = (40, 110, 40) if self.advanced_tooltip else (60, 60, 80)
+            border = (100, 200, 100) if self.advanced_tooltip else (110, 110, 150)
+            pygame.draw.rect(self.screen, bg, r, border_radius=6)
+            pygame.draw.rect(self.screen, border, r, 1, border_radius=6)
+            label = "Image" if self.advanced_tooltip else "Texte"
+            lbl = self.font_small.render(f"Tooltip: {label}", True, (210, 210, 210))
+            self.screen.blit(lbl, (r.x + (r.w - lbl.get_width()) // 2,
+                                   r.y + (r.h - lbl.get_height()) // 2))
 
     def _draw_footer(self):
         current = self.game.players[self.game.current_player]
@@ -784,6 +824,12 @@ class CastelWindow:
                 self.tooltip_card = self.game.exchange[ei]
                 return
 
+        # Exterior strip (non-siege cards displayed below castle)
+        ext_card = self._ext_card_at(mx, my)
+        if ext_card:
+            self.tooltip_card = ext_card
+            return
+
         grid = self._grid_from_px(mx, my)
         if grid is not None:
             tx, ty = grid
@@ -800,6 +846,25 @@ class CastelWindow:
         if not self.tooltip_card:
             return
         c = self.tooltip_card
+        mx, my = self.mouse_pos
+
+        if self.advanced_tooltip:
+            # Advanced mode: show card image at 20% of original size
+            img = self.game.board.card_images.get(c.nom)
+            if img:
+                ow, oh = img.get_size()
+                tw = max(80, int(ow * 0.20))
+                th = max(80, int(oh * 0.20))
+                tx = mx + 15 if mx + 15 + tw < self.sw else mx - tw - 15
+                ty = my + 15 if my + 15 + th < self.sh else my - th - 15
+                scaled = pygame.transform.smoothscale(img, (tw, th))
+                s = scaled.copy(); s.set_alpha(230)
+                self.screen.blit(s, (tx, ty))
+                pygame.draw.rect(self.screen, self._card_color(c), (tx, ty, tw, th), 2)
+                return
+            # No image: fall through to text mode
+
+        # Basic mode: text from Inventaire.csv
         action_text = getattr(c, "action", "") or ""
         cond_text = c.condition if c.condition else "-"
         lines = [c.nom, f"Zone: {c.lieu}", f"Cond: {cond_text}"]
@@ -809,7 +874,6 @@ class CastelWindow:
 
         tw = max(200, max(len(l) for l in lines) * 8 + 20)
         th = len(lines) * 18 + 14
-        mx, my = self.mouse_pos
         tx = mx + 15 if mx + 15 + tw < self.sw else mx - tw - 15
         ty = my + 15 if my + 15 + th < self.sh else my - th - 15
 
