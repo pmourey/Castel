@@ -162,11 +162,15 @@ class CastelWindow:
             lbl = self.font_small.render(card.nom[:10], True, (230, 230, 230))
             self.screen.blit(lbl, (px + 4, py + size // 2 - 7))
 
-        # Pawn color indicator (if card has a pion_owner)
+        # Pawn (pion) displayed at center of placed card, 2x larger than previous size
         owner = getattr(card, 'pion_owner', None)
         if owner:
             col = self._pawn_color(owner)
-            pygame.draw.circle(self.screen, col, (px + 8, py + 8), max(5, size // 18))
+            # previously: radius = max(5, size//18). Double that: max(10, size//9)
+            radius = max(10, max(6, size // 9))
+            cx = px + size // 2
+            cy = py + size // 2
+            pygame.draw.circle(self.screen, col, (cx, cy), radius)
         else:
             # Draw zone color dot on cards without pawn (small top-right)
             if size >= 36:
@@ -881,9 +885,8 @@ class CastelWindow:
             else:
                 pygame.draw.rect(self.screen, self._card_color(card_obj), (tx, ty, tw, th))
                 self.screen.blit(self.font_small.render(card_obj.nom[:10], True, (230, 230, 230)), (tx + 4, ty + th // 2 - 7))
-            owner = getattr(card_obj, 'pion_owner', None)
-            if owner:
-                pygame.draw.circle(self.screen, self._pawn_color(owner), (tx + 10, ty + 10), max(5, tw // 18))
+            # Do not draw pawn in tooltip (tooltip should be image/text only)
+            pass
 
         if self.advanced_tooltip:
             # Advanced: if this is a chevalier protecting another card, show the stack
@@ -903,22 +906,36 @@ class CastelWindow:
                     top = self.game.board.cour[tyg][txg]
                     if top and getattr(top, 'protects', None) is c:
                         stack.insert(0, top)
-            # Draw stack vertically, largest on top
+            # Draw stack vertically, using each image at 20% of its original size
             if stack:
-                tw = max(80, int(self.hand_card_size * 0.9))
-                th = max(80, int(self.hand_card_size * 0.9))
-                total_h = len(stack) * (th + 6) - 6
-                tx = mx + 15 if mx + 15 + tw < self.sw else mx - tw - 15
+                sizes = []
+                for card_obj in stack:
+                    img = self.game.board.card_images.get(card_obj.nom)
+                    if img:
+                        ow, oh = img.get_size()
+                        tw_i = max(40, int(ow * 0.20))
+                        th_i = max(40, int(oh * 0.20))
+                    else:
+                        # fallback to reasonable size derived from hand_card_size
+                        tw_i = th_i = max(80, int(self.hand_card_size * 0.6))
+                    sizes.append((tw_i, th_i))
+
+                max_tw = max(tw for tw, _ in sizes)
+                total_h = sum(th for _, th in sizes) + (len(stack) - 1) * 6
+                tx = mx + 15 if mx + 15 + max_tw < self.sw else mx - max_tw - 15
                 ty = my + 15 if my + 15 + total_h < self.sh else my - total_h - 15
-                for i, card_obj in enumerate(stack):
-                    draw_card_box(card_obj, tx, ty + i * (th + 6), tw, th)
+
+                y_off = 0
+                for card_obj, (tw, th) in zip(stack, sizes):
+                    draw_card_box(card_obj, tx, ty + y_off, tw, th)
+                    y_off += th + 6
                 return
-            # Fallback: show single image
+            # Fallback: show single image at 20% of original image size
             img = self.game.board.card_images.get(c.nom)
             if img:
                 ow, oh = img.get_size()
-                tw = max(80, int(ow * 0.20))
-                th = max(80, int(oh * 0.20))
+                tw = max(40, int(ow * 0.20))
+                th = max(40, int(oh * 0.20))
                 tx = mx + 15 if mx + 15 + tw < self.sw else mx - tw - 15
                 ty = my + 15 if my + 15 + th < self.sh else my - th - 15
                 scaled = pygame.transform.smoothscale(img, (tw, th))
