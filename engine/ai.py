@@ -55,10 +55,23 @@ class AIPlayer(Player):
                 if tile['type'] == 'rempart' and tile['card'] is None:
                     return (tx, ty)
         elif 'hors les murs' in lieu:
-            # Find a free exterior slot (starting outside the castle grid)
-            for ext_x in range(5, 25):
-                for ext_y in range(0, 5):
-                    pos = (ext_x, ext_y)
-                    if pos not in game.board.exterieur and pos not in game.board.tiles:
+            if card.nom == 'Engin_de_siege':
+                # Must face a rempart; search all 16 canonical siege slots
+                siege_slots = (
+                    [(-2, y) for y in range(4)] +   # left wall
+                    [(5,  y) for y in range(4)] +   # right wall
+                    [(x, -2) for x in range(4)] +   # top wall
+                    [(x,  5) for x in range(4)]     # bottom wall
+                )
+                random.shuffle(siege_slots)
+                for pos in siege_slots:
+                    if pos not in game.board.exterieur and game.can_place_card(card, pos):
                         return pos
+            else:
+                # Non-siege exterior cards go anywhere free outside the castle
+                for ext_x in range(5, 25):
+                    for ext_y in range(0, 5):
+                        pos = (ext_x, ext_y)
+                        if pos not in game.board.exterieur and pos not in game.board.tiles:
+                            return pos
         return None

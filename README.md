@@ -21,14 +21,14 @@ python main.py
  Donnes des 37 types de cartes
 ```
 
-## Contrlllles
+## Contrôles
 
-| Action | Contrlllle |
+| Action | Contrôle |
 |--------|----------|
-| Slectionner une carte | Clic gauche sur la carte en main |
+| Sélectionner une carte | Clic gauche sur la carte en main |
 | Placer une carte | Clic gauche sur la case du plateau |
 | Piocher | Clic sur le bouton Piocher |
-| changer | Clic sur une carte de l'change |
+| changer | Clic sur une carte de l'échange |
 | Quitter | ESC |
 
 ## Tests
@@ -39,7 +39,7 @@ python test_suite.py
 
 ## Documentation
 
-- [`DOCUMENTATION.md`](DOCUMENTATION. Architecture techniquemd) 
-- [`GETTING_STARTED.md`](GETTING_STARTED. Guide d'installationmd) 
+- [`DOCUMENTATION.md`](DOCUMENTATION. Architecture technique) 
+- [`GETTING_STARTED.md`](GETTING_STARTED. Guide d'installation) 
 - [`rules.md`](rules. RMdgles officielles du jeu) 
-- [`CHANGELOG.md`](CHANGELOG. Historique des versionsmd) 
+- [`CHANGELOG.md`](CHANGELOG. Historique des versions) 
