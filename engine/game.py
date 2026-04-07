@@ -130,8 +130,35 @@ class GameState:
         if zone == 'rempart':
             return 'rempart' in lieu
         if zone == 'exterieur':
-            return 'hors les murs' in lieu
+            if 'hors les murs' not in lieu:
+                return False
+            if card.nom == 'Engin_de_siege':
+                return self._is_valid_siege_position(position)
+            return True
         return False
+
+    def _is_valid_siege_position(self, position):
+        """Engin de siège must face a rempart, and only one per rempart face."""
+        if self.board.exterieur.get(position) is not None:
+            return False
+        x, y = position
+        facing_rempart = None
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nx, ny = x + dx, y + dy
+            if (nx, ny) in self.board.tiles and self.board.tiles[(nx, ny)]['type'] == 'rempart':
+                facing_rempart = (nx, ny)
+                break
+        if facing_rempart is None:
+            return False
+        # Only one engin de siège may face each rempart
+        fx, fy = facing_rempart
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nx, ny = fx + dx, fy + dy
+            if (nx, ny) != position:
+                existing = self.board.exterieur.get((nx, ny))
+                if existing and 'Engin' in getattr(existing, 'nom', ''):
+                    return False
+        return True
 
     def _get_zone_at_position(self, position):
         """Determine the zone for a given position"""
@@ -207,6 +234,16 @@ class GameState:
             )
             if engines_count >= 3:
                 self._handle_fourth_siege_engine()
+
+        # Chevalier: link to the card it protects (for stacked display)
+        lieu_card = getattr(card, 'lieu', '').lower()
+        if 'sur une autre carte' in lieu_card:
+            cx, cy = position
+            if 0 <= cx < 4 and 0 <= cy < 4:
+                existing = self.board.cour[cy][cx]
+                if existing:
+                    card.protects = existing
+                    existing.protected = True
 
         # Track card ownership for pion rules
         card.pion_owner = player

@@ -542,10 +542,20 @@ class TestCanPlaceCard(unittest.TestCase):
         card = make_card('Dragon', 'Vert', 'Arrive hors les murs')
         self.assertTrue(game.can_place_card(card, (8, 0)))
 
-    def test_vert_engin_siege_allowed_in_exterior(self):
+    def test_vert_engin_siege_must_face_rempart(self):
+        """Engin de siege must be adjacent to a rempart tile."""
         game = make_game()
         card = make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')
-        self.assertTrue(game.can_place_card(card, (8, 0)))
+        # Position (8, 0) is not adjacent to any rempart — should be rejected
+        self.assertFalse(game.can_place_card(card, (8, 0)))
+        # Position (-2, 0) is adjacent to left rempart (-1, 0) — should be accepted
+        self.assertTrue(game.can_place_card(card, (-2, 0)))
+        # Position (5, 2) is adjacent to right rempart (4, 2) — should be accepted
+        self.assertTrue(game.can_place_card(card, (5, 2)))
+        # Position (1, -2) is adjacent to top rempart (1, -1) — should be accepted
+        self.assertTrue(game.can_place_card(card, (1, -2)))
+        # Position (3, 5) is adjacent to bottom rempart (3, 4) — should be accepted
+        self.assertTrue(game.can_place_card(card, (3, 5)))
 
     def test_vert_rejected_in_cour(self):
         game = make_game()
@@ -570,10 +580,107 @@ class TestCanPlaceCard(unittest.TestCase):
         rempart_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart'][0]
         self.assertFalse(game.can_place_card(card, rempart_pos))
 
+    def test_engin_siege_only_one_per_rempart_face(self):
+        """Two engins de siege cannot face the same rempart."""
+        game = make_game()
+        card = make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')
+        first = make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')
+        # Place one engin at (-2, 1) facing rempart (-1, 1)
+        game.board.exterieur[(-2, 1)] = first
+        # Now try to place a second engin at the ONLY position facing (-1, 1) — should fail
+        self.assertFalse(game.can_place_card(card, (-2, 1)))
+        # But placing at (-2, 2) facing rempart (-1, 2) should still work
+        self.assertTrue(game.can_place_card(card, (-2, 2)))
+
+    def test_non_siege_vert_accepted_anywhere_exterior(self):
+        """Non-siege vert cards (Dragon, Barbare, etc.) can go anywhere exterior."""
+        game = make_game()
+        card = make_card('Dragon', 'Vert', 'Arrive hors les murs')
+        # Far from castle — accepted
+        self.assertTrue(game.can_place_card(card, (8, 0)))
+        # Adjacent to rempart — also accepted (no rempart-adjacency constraint for non-siege)
+        self.assertTrue(game.can_place_card(card, (-2, 0)))
+
 
 # ---------------------------------------------------------------------------
-# Tests: AI fallback when no placement possible
+# Tests: Chevalier stacking
 # ---------------------------------------------------------------------------
+
+class TestChevalierStacking(unittest.TestCase):
+    def test_place_card_sets_protects_on_chevalier(self):
+        """When Chevalier is placed on an occupied cell, card.protects is set."""
+        game = make_game()
+        player = game.players[0]
+        # Place a Roi in the cour
+        roi = make_card('Roi', 'Rouge', 'Arrive a la cour')
+        game.board.cour[0][0] = roi
+        # Give player a Chevalier
+        chev = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        chev.pion_owner = None
+        player.hand.append(chev)
+        result = game.place_card(player, chev, (0, 0))
+        self.assertNotEqual(result, False, "Chevalier placement should succeed")
+        self.assertEqual(chev.protects, roi, "Chevalier.protects should reference the Roi")
+
+    def test_place_card_marks_protected_card(self):
+        """The card under a Chevalier gets protected=True."""
+        game = make_game()
+        player = game.players[0]
+        roi = make_card('Roi', 'Rouge', 'Arrive a la cour')
+        game.board.cour[1][1] = roi
+        chev = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        chev.pion_owner = None
+        player.hand.append(chev)
+        game.place_card(player, chev, (1, 1))
+        self.assertTrue(getattr(roi, 'protected', False), "Roi should be marked protected")
+
+    def test_chevalier_on_chevalier(self):
+        """A Chevalier can be placed on another Chevalier (rules p.122)."""
+        game = make_game()
+        player = game.players[0]
+        first_chev = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        game.board.cour[2][2] = first_chev
+        second_chev = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        second_chev.pion_owner = None
+        player.hand.append(second_chev)
+        result = game.place_card(player, second_chev, (2, 2))
+        self.assertNotEqual(result, False, "Chevalier on Chevalier should be allowed")
+        self.assertEqual(second_chev.protects, first_chev)
+
+
+# ---------------------------------------------------------------------------
+# Tests: AI siege engine search
+# ---------------------------------------------------------------------------
+
+class TestAISiegeSearch(unittest.TestCase):
+    def test_ai_places_engin_at_siege_slot(self):
+        """AI finds a valid siege slot for Engin_de_siege."""
+        game = make_game()
+        ai = game.players[1]
+        ai.hand = [make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')]
+        ai.deck = []
+        action = ai.choose_action(game)
+        self.assertEqual(action[0], 'place')
+        _, card, pos = action
+        # Position should be adjacent to a rempart
+        self.assertTrue(game.can_place_card(card, pos), f"AI chose invalid siege position {pos}")
+
+    def test_ai_skips_engin_when_all_slots_taken(self):
+        """AI does not loop when all siege slots are already taken."""
+        from engine.ai import AIPlayer
+        game = make_game()
+        ai = game.players[1]
+        # Fill all 16 siege slots
+        for slot in [(-2, y) for y in range(4)] + [(5, y) for y in range(4)] + \
+                    [(x, -2) for x in range(4)] + [(x, 5) for x in range(4)]:
+            game.board.exterieur[slot] = make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')
+        ai.hand = [make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')]
+        ai.deck = [make_card('Roi')]
+        action = ai.choose_action(game)
+        # Cannot place, so should draw or exchange or skip — never 'place'
+        self.assertNotEqual(action[0], 'place', "AI should not try to place when all siege slots full")
+
+
 
 class TestAIFallback(unittest.TestCase):
     def test_ai_draws_when_cannot_place(self):
