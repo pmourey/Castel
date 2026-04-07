@@ -6,7 +6,7 @@ import pygame
 TOP_H        = 75    # header height
 BTM_H        = 26    # footer height
 LEFT_W       = 130   # player-pioche panel (fixed)
-LOG_W        = 270   # action-log panel (fixed)
+LOG_W        = 200   # action-log panel (fixed)
 HAND_BTN_H   = 36    # action button height
 HAND_BTN_GAP = 10    # gap between action buttons
 EXCH_GAP     = 4     # gap between exchange cards
@@ -84,6 +84,8 @@ class CastelWindow:
 
         # Exchange cards: same cell size as hand cards
         self.exch_cols = max(3, (self.hand_w - 20) // (c + EXCH_GAP))
+        # Hand/exchange cards slightly larger than castle cell for readability
+        self.hand_card_size = max(56, int(self.cell * 1.25))
 
     def _on_resize(self, w, h):
         """Handle window resize: recompute layout and recreate buttons."""
@@ -152,11 +154,11 @@ class CastelWindow:
         ly = y - (TOP_H + 32)
         if lx < 0 or ly < 0 or y >= hand_cards_bottom:
             return None
-        cw = self.cell; gap = 8
+        cw = self.hand_card_size; gap = HAND_CARD_GAP
         col = lx // (cw + gap)
         row = ly // (cw + gap)
-        idx = row * 5 + col
-        if 0 <= col < 5 and 0 <= idx < len(player.hand):
+        idx = row * HAND_CARD_COLS + col
+        if 0 <= col < HAND_CARD_COLS and 0 <= idx < len(player.hand):
             return idx
         return None
 
@@ -171,8 +173,8 @@ class CastelWindow:
         ly = y - (exch_y + 24)
         if lx < 0 or ly < 0:
             return None
-        col = lx // (self.cell + EXCH_GAP)
-        row = ly // (self.cell + EXCH_GAP)
+        col = lx // (self.hand_card_size + EXCH_GAP)
+        row = ly // (self.hand_card_size + EXCH_GAP)
         idx = row * self.exch_cols + col
         if 0 <= col < self.exch_cols and 0 <= idx < len(self.game.exchange):
             return idx
@@ -266,7 +268,7 @@ class CastelWindow:
                     if self.selected_exchange_card_idx is not None:
                         self._perform_exchange(current)
                     return
-                cw = self.cell; gap = 8
+                cw = self.hand_card_size; gap = HAND_CARD_GAP
                 col = idx % 5; row = idx // 5
                 cx_ = self.hand_x + 10 + col * (cw + gap) + cw // 2
                 cy_ = TOP_H + 32 + row * (cw + gap) + cw // 2
@@ -504,20 +506,24 @@ class CastelWindow:
         # Castle tiles (tours + remparts)
         for (tx, ty), tile in self.game.board.tiles.items():
             px, py = self._castle_px(tx, ty)
-            img_key = "Tour" if tile["type"] == "tour" else "Rempart"
-            img = self.game.board.card_images.get(img_key)
-            bg  = (195, 165, 105) if tile["type"] == "tour" else (165, 145, 105)
+            # Use provided tile sprites if available (Tour.png / Rempart.png)
+            img = self.game.board.tour_img if tile['type'] == 'tour' else self.game.board.rempart_img
+            bg  = (195, 165, 105) if tile['type'] == 'tour' else (165, 145, 105)
             if img:
                 cropped = self._fit_image(img, self.cell, self.cell)
-                rot = tile.get("rotation", 0)
+                rot = tile.get('rotation', 0)
                 if rot:
                     cropped = pygame.transform.rotate(cropped, rot * 90)
-                self.screen.blit(cropped, (px, py))
+                # Center the (possibly rotated) tile inside the cell
+                r = cropped.get_rect()
+                bx = px + (self.cell - r.width)//2
+                by = py + (self.cell - r.height)//2
+                self.screen.blit(cropped, (bx, by))
             else:
                 pygame.draw.rect(self.screen, bg, (px, py, self.cell, self.cell))
                 pygame.draw.rect(self.screen, (100, 80, 50), (px, py, self.cell, self.cell), 1)
-            if tile["card"]:
-                self._draw_card_on_cell(tile["card"], px, py, self.cell)
+            if tile['card']:
+                self._draw_card_on_cell(tile['card'], px, py, self.cell)
 
         # Cour grid cells + cards (+ Chevalier stacking)
         for cy in range(4):
@@ -650,7 +656,7 @@ class CastelWindow:
         self._draw_exchange_in_hand(exch_y, exch_rows)
 
         # --- Hand cards ---
-        cw = self.cell; gap = 8; cols = 5
+        cw = self.hand_card_size; gap = HAND_CARD_GAP; cols = 5
         max_rows = max(1, (hand_cards_bottom - hand_cards_top) // (cw + gap))
 
         for i, card in enumerate(current.hand):
@@ -733,7 +739,7 @@ class CastelWindow:
 
     def _draw_dragged_card(self):
         card = self.dragging_card
-        size = self.cell + 14
+        size = self.hand_card_size + 14
         dx = self.mouse_pos[0] - size // 2
         dy = self.mouse_pos[1] - size // 2
         img = self.game.board.card_images.get(card.nom)
