@@ -1,0 +1,39 @@
+﻿Couleur;Carte;Nombre de cartes;Lieu;Condition;Action
+Bleu;Fantome;1;Arrive dans une tour;Arrive dans une tour occupée;Le fantôme renvoie la carte dont il prend la place.
+Bleu;Guetteur;1;Arrive dans une tour;;Le guetteur déplace un soldat.
+Bleu;Magicien;1;Arrive dans une tour;;Le magicien renvoie n'importe quelle carte et l'ajoute aux cartes de l'échange.
+Bleu;Archer;1;Arrive dans une tour;;L'archer renvoie une carte se trouvant hors les murs.
+Bleu;Sorciere;1;Arrive dans une tour;;La sorcière renvoie l'une des cartes de l'échange dans la main d'un joueur de votre choix.
+Bleu;Alchimiste;1;Arrive dans une tour;;L'alchimiste vous fait échanger immédiatement deux cartes de votre main contre le même nombre de cartes de l'échange.
+Orange;Capitaine;1;Arrive sur les remparts;;Le capitaine est un soldat. Le quatrième soldat arrivant sur un rempart renvoie l'engin de siège qui se trouve en face. Il protège tous les autres soldats se trouvant sur le même rempart que lui.
+Orange;Traitre;1;Arrive sur les remparts;;Le traître est un soldat. Le quatrième soldat arrivant sur un rempart renvoie l'engin de siège qui se trouve en face. Il renvoie une carte se trouvant sur une case de cour voisine.
+Orange;Soldat;13;Arrive sur les remparts;;Le quatrième soldat arrivant sur un rempart renvoie l'engin de siège qui se trouve en face.
+Rouge;Marchand;1;Arrive à la cour;;Le marchand vous fait effectuer une troisième action. En contrepartie, vous devez remplacer trois pions d'autres joueurs par les vôtres.
+Rouge;Roi;1;Arrive à la cour;;Le roi renvoie du château n'importe quelle autre carte. Si la favorite est à la cour, le joueur ayant un pion sur la favorite renvoie également une carte de son choix.
+Rouge;Baladin;1;Arrive à la cour;;Le baladin intervertit les cartes se trouvant sur des cases de cour voisines.
+Rouge;Courtisane;1;Arrive à la cour;;La courtisane vous fait échanger une carte de votre main contre une carte prise au hasard dans la main d'un autre joueur.
+Rouge;Reine;1;Arrive à la cour;si le roi est à la cour, doit être placée sur une case voisine;La reine renvoie de la cour n'importe quelle autre carte.
+Rouge;Princesse;1;Arrive à la cour;;La princesse déplace un chevalier.
+Rouge;Prince;1;Arrive à la cour;;Si le roi est absent de la cour, les cartes devant être placées à côté du roi peuvent être placées à côté du prince.
+Rouge;Intriguant;1;Arrive à la cour;;L'intrigant échange les pions de deux autres cartes.
+Rouge;Espion;1;Arrive à la cour;;L'espion permute comme il le souhaite les pions des cartes situées sur les cases voisines.
+Rouge;Ambassadeur;1;Arrive à la cour;Arrive à la cour sur la dernière case libre;L'ambassadeur est protégé.
+Rouge;Voleur;1;Arrive à la cour;;Le voleur retire le pion d'une carte située sur une case voisine. Si, plus tard, cette carte est renvoyée, elle va à l'échange.
+Rouge;Bouffon;1;Arrive à la cour;;Chaque joueur passe une carte à son voisin de gauche. Les échanges sont simultanés.
+Rouge;Fou;1;Arrive à la cour;;Chaque joueur pioche une carte au hasard dans le jeu de son voisin de droite. Les échanges sont simultanés.
+Rouge;Pretre;1;Arrive à la cour;;Le prêtre protège les personnages des cases voisines ayant un pion de même couleur.
+Rouge;Dame_de_compagnie;1;Arrive à la cour;"Arrive à la cour
+sur une case voisine de la reine ou de la princesse";La dame de compagnie renvoie de la cour un personnage masculin se trouvant sur une case voisine.
+Rouge;Courtisan;1;Arrive à la cour;;Le courtisan renvoie du château une carte se trouvant sur une case voisine.
+Rouge;Assassin;1;Arrive à la cour;;L'assassin retire définitivement du jeu n'importe quelle carte (autre que le roi) se trouvant sur une case voisine.
+Rouge;Conseiller_du_roi;1;Arrive à la cour;Arrive à la cour sur une case voisine du roi;Le conseiller du roi met en jeu l'une des cartes se trouvant dans l'échange. Cette carte, sans pion, fait effet normalement au gré du joueur qui a joué le conseiller:
+Rouge;Favorite;1;Arrive à la cour;ne peux pas être posée si la reine est à la cour;La favorite déplace librement le roi et un chevalier.
+Rouge;Prince_charmant;1;Arrive à la cour;si la princesse est à la cour, doit être placé sur une case voisine;Le prince charmant déplace un personnage féminin.
+Rouge;Chevalier_noir;1;Arrive à la cour;;Le chevalier noir renvoie un chevalier se trouvant sur une case voisine.
+Vert;Barbare;1;Arrive hors les murs;;Le barbare renvoie une carte se trouvant dans une tour ou sur un rempart.
+Vert;Fee;1;Arrive hors les murs;;La fée attire hors les murs l'un des personnages se trouvant dans le château.
+Vert;Enchanteur;1;Arrive hors les murs;;L'enchanteur renvoie la dernière carte à avoir été placée.
+Vert;Engin_de_siege;5;Arrive hors les murs;Arrive hors les murs face à un rempart;Le quatrième engin de siège renvoie tous les soldats se trouvant sur les remparts.
+Vert;Dragon;1;Arrive hors les murs;;Le dragon renvoie une carte se trouvant hors les murs et une carte se trouvant dans une tour ou sur un rempart.
+Vert;Herault;1;Arrive hors les murs;;Si le hérault est en jeu, le joueur qui a le roi dans sa main est obligé de le jouer lorsque vient son tour de jeu.
+Violet;Chevalier;4;Arrive sur une autre carte;;Le chevalier protège la carte sur laquelle il est posé

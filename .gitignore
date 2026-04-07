@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+*.swp
+*.swo
+*~
+
+# Pygame
+*.pyc
+.pygame
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+*.code-workspace
+
+# Temporary
+*.tmp
+*.bak
+*.swp
+temp/
+tmp/
+
+# Game saves
+save/
+*.sav

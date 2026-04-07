@@ -1,0 +1,14 @@
+{
+  "name": "Castel",
+  "version": "1.0",
+  "python_version": "3.11",
+  "dependencies": ["pygame>=2.6.1"],
+  "authors": ["Game Developer"],
+  "description": "A Pygame implementation of the Castel board game (1 human vs up to 4 AI players)",
+  "main": "main.py",
+  "entry_points": {
+    "console_scripts": [
+      "castel = main:main"
+    ]
+  }
+}
