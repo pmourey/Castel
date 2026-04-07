@@ -27,6 +27,7 @@ class CastelWindow:
     def __init__(self, game):
         self.game = game
         pygame.init()
+        self._recompute_layout(1800, 900)
         self.screen = pygame.display.set_mode((self.sw, self.sh), pygame.RESIZABLE)
         pygame.display.set_caption("Castel - Jeu de Plateau")
         self.clock = pygame.time.Clock()
@@ -53,7 +54,6 @@ class CastelWindow:
         self.action_buttons             = {}
         self.game_over                  = False
         self.winner                     = None
-        self._recompute_layout(1800, 900)
         self._create_action_buttons()
 
 
