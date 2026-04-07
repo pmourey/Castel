@@ -54,7 +54,7 @@ class CastelWindow:
         self.action_buttons             = {}
         self.game_over                  = False
         self.winner                     = None
-        self.advanced_tooltip           = False
+        self.advanced_tooltip           = True
         self._create_action_buttons()
 
 
