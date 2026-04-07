@@ -63,14 +63,15 @@ class CastelWindow:
         self.inner_h = h - TOP_H - BTM_H
 
         # CELL: constrained by both vertical space and castle panel width
-        cell_v = max(40, min(120, (h - TOP_H - BTM_H - 60) // 9))
+        cell_v = max(40, min(160, (h - TOP_H - BTM_H - 60) // 9))
         avail_w = w - LEFT_W - LOG_W
-        cell_h  = max(40, min(120, (avail_w // 2 - 40) // 8))
+        cell_h  = max(40, min(160, (avail_w // 2 - 40) // 8))
         self.cell = min(cell_v, cell_h)
         c = self.cell
 
         self.castle_w = 8 * c + 40
-        self.hand_w   = max(300, w - LEFT_W - self.castle_w - LOG_W)
+        # Reduce LOG_W impact so hand area is larger: recompute hand_w from remaining space
+        self.hand_w   = max(360, w - LEFT_W - self.castle_w - LOG_W)
         self.castle_x = LEFT_W
         self.log_x    = self.castle_x + self.castle_w
         self.hand_x   = self.log_x + LOG_W
@@ -82,10 +83,12 @@ class CastelWindow:
         self.ext_strip_y = self.castle_grid_bottom + c + 4
         self.ext_strip_h = h - BTM_H - self.ext_strip_y
 
-        # Exchange cards: same cell size as hand cards
+        # Exchange cards: compute columns based on available hand width
         self.exch_cols = max(3, (self.hand_w - 20) // (c + EXCH_GAP))
-        # Hand/exchange cards slightly larger than castle cell for readability
-        self.hand_card_size = max(56, int(self.cell * 1.25))
+        # Hand/exchange cards: compute size constrained by both castle cell and hand panel width
+        horiz_limit = max(48, int((self.hand_w - 20 - (HAND_CARD_COLS - 1) * HAND_CARD_GAP) / HAND_CARD_COLS))
+        vert_limit  = int(self.cell * 1.5)
+        self.hand_card_size = max(56, min(horiz_limit, vert_limit))
 
     def _on_resize(self, w, h):
         """Handle window resize: recompute layout and recreate buttons."""

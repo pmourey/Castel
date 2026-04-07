@@ -193,8 +193,9 @@ class GameState:
         # Therefore: Bottom-right = 0, Bottom-left = 1 (90° CCW),
         # Top-left = 2 (180°), Top-right = 3 (270°).
         self.board.add_tile(-1, -1, 'tour', 2)  # Top-left
-        self.board.add_tile(4, -1, 'tour', 3)   # Top-right
-        self.board.add_tile(-1, 4, 'tour', 1)   # Bottom-left
+        # Swap Top-right and Bottom-left rotations to fix orientation
+        self.board.add_tile(4, -1, 'tour', 1)   # Top-right
+        self.board.add_tile(-1, 4, 'tour', 3)   # Bottom-left
         self.board.add_tile(4, 4, 'tour', 0)    # Bottom-right
 
         # Top and bottom walls (remparts)
