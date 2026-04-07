@@ -99,12 +99,12 @@ class CardEffects:
     @staticmethod
     def magicien_effect(game, player, card, position):
         """Le magicien renvoie n'importe quelle carte et l'ajoute aux cartes de l'échange."""
-        # Return a random card from the board to exchange
         cards_on_board = []
         for cy in range(4):
             for cx in range(4):
-                if game.board.cour[cy][cx]:
-                    cards_on_board.append((game.board.cour[cy][cx], cx, cy))
+                c = game.board.cour[cy][cx]
+                if c and not getattr(c, 'protected', False):
+                    cards_on_board.append((c, cx, cy))
         if cards_on_board:
             card_to_move, cx, cy = random.choice(cards_on_board)
             game.exchange.append(card_to_move)
@@ -152,11 +152,11 @@ class CardEffects:
     def traitre_effect(game, player, card, position):
         """Le traître renvoie une carte se trouvant sur une case de cour voisine."""
         x, y = position
-        # Adjacent cour cells for a rempart tile
         candidates = []
         for cx in range(4):
             for cy in range(4):
-                if game.board.cour[cy][cx] is not None:
+                c = game.board.cour[cy][cx]
+                if c is not None and not getattr(c, 'protected', False):
                     candidates.append((cx, cy))
         if candidates:
             cx, cy = random.choice(candidates)
@@ -191,6 +191,7 @@ class CardEffects:
         cards_on_board = [
             (cx, cy) for cy in range(4) for cx in range(4)
             if game.board.cour[cy][cx] and game.board.cour[cy][cx] is not card
+            and not getattr(game.board.cour[cy][cx], 'protected', False)
         ]
         if cards_on_board:
             cx, cy = random.choice(cards_on_board)
@@ -234,6 +235,7 @@ class CardEffects:
         cards_on_board = [
             (cx, cy) for cy in range(4) for cx in range(4)
             if game.board.cour[cy][cx] and game.board.cour[cy][cx] is not card
+            and not getattr(game.board.cour[cy][cx], 'protected', False)
         ]
         if cards_on_board:
             cx, cy = random.choice(cards_on_board)
@@ -370,9 +372,10 @@ class CardEffects:
         for dx in [-1, 1]:
             nx = x + dx
             if 0 <= nx < 4 and game.board.cour[y][nx]:
-                game.exchange.append(game.board.cour[y][nx])
-                game.board.cour[y][nx] = None
-                return
+                if not getattr(game.board.cour[y][nx], 'protected', False):
+                    game.exchange.append(game.board.cour[y][nx])
+                    game.board.cour[y][nx] = None
+                    return
     
     @staticmethod
     def assassin_effect(game, player, card, position):
@@ -381,8 +384,8 @@ class CardEffects:
         for dx in [-1, 1]:
             nx = x + dx
             if 0 <= nx < 4 and game.board.cour[y][nx]:
-                if "Roi" not in game.board.cour[y][nx].nom:
-                    # Remove permanently
+                target = game.board.cour[y][nx]
+                if "Roi" not in target.nom and not getattr(target, 'protected', False):
                     game.board.cour[y][nx] = None
                     return
     

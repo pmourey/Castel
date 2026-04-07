@@ -118,6 +118,19 @@ class CastelWindow:
         }
         return mapping.get(getattr(card, "couleur", "").lower(), (130, 130, 130))
 
+    def _pawn_color(self, player):
+        """Map player.pions_color string to an RGB color for pawn display."""
+        if not player:
+            return (220, 220, 220)
+        mapping = {
+            'black':  (20, 20, 20),
+            'beige':  (200, 180, 140),
+            'red':    (200, 60, 60),
+            'green':  (80, 190, 80),
+            'purple': (150, 80, 200),
+        }
+        return mapping.get(getattr(player, 'pions_color', '').lower(), (220, 220, 220))
+
     def _castle_px(self, tx, ty):
         """Return top-left screen pixel for castle grid position (tx, ty)."""
         return (self.castle_origin_x + tx * self.cell, self.castle_origin_y + ty * self.cell)
@@ -148,6 +161,16 @@ class CastelWindow:
             pygame.draw.rect(self.screen, bg, (px + 2, py + 2, size - 4, size - 4))
             lbl = self.font_small.render(card.nom[:10], True, (230, 230, 230))
             self.screen.blit(lbl, (px + 4, py + size // 2 - 7))
+
+        # Pawn color indicator (if card has a pion_owner)
+        owner = getattr(card, 'pion_owner', None)
+        if owner:
+            col = self._pawn_color(owner)
+            pygame.draw.circle(self.screen, col, (px + 8, py + 8), max(5, size // 18))
+        else:
+            # Draw zone color dot on cards without pawn (small top-right)
+            if size >= 36:
+                pygame.draw.circle(self.screen, self._card_color(card), (px + size - 10, py + 10), max(4, size // 22))
 
     def _hand_idx_at(self, x, y, player):
         bh = HAND_BTN_H
@@ -848,8 +871,49 @@ class CastelWindow:
         c = self.tooltip_card
         mx, my = self.mouse_pos
 
+        # Helper to draw a card image box at (tx,ty) with size tw,th and optionally a pawn dot
+        def draw_card_box(card_obj, tx, ty, tw, th):
+            img = self.game.board.card_images.get(card_obj.nom)
+            if img:
+                fitted = self._fit_image(img, tw, th)
+                fw, fh = fitted.get_size()
+                self.screen.blit(fitted, (tx + (tw - fw) // 2, ty + (th - fh) // 2))
+            else:
+                pygame.draw.rect(self.screen, self._card_color(card_obj), (tx, ty, tw, th))
+                self.screen.blit(self.font_small.render(card_obj.nom[:10], True, (230, 230, 230)), (tx + 4, ty + th // 2 - 7))
+            owner = getattr(card_obj, 'pion_owner', None)
+            if owner:
+                pygame.draw.circle(self.screen, self._pawn_color(owner), (tx + 10, ty + 10), max(5, tw // 18))
+
         if self.advanced_tooltip:
-            # Advanced mode: show card image at 20% of original size
+            # Advanced: if this is a chevalier protecting another card, show the stack
+            stack = []
+            cur = c
+            stack.append(cur)
+            while getattr(cur, 'protects', None):
+                cur = cur.protects
+                stack.append(cur)
+            # If the selected card is the protected (not the chevalier), try to find its chevalier
+            if getattr(c, 'protected', False) and not getattr(c, 'protects', None):
+                # search for chevalier on that cell
+                # Try to find top card at the last mouse-overed grid
+                grid = self._grid_from_px(mx, my)
+                if grid:
+                    txg, tyg = grid
+                    top = self.game.board.cour[tyg][txg]
+                    if top and getattr(top, 'protects', None) is c:
+                        stack.insert(0, top)
+            # Draw stack vertically, largest on top
+            if stack:
+                tw = max(80, int(self.hand_card_size * 0.9))
+                th = max(80, int(self.hand_card_size * 0.9))
+                total_h = len(stack) * (th + 6) - 6
+                tx = mx + 15 if mx + 15 + tw < self.sw else mx - tw - 15
+                ty = my + 15 if my + 15 + total_h < self.sh else my - total_h - 15
+                for i, card_obj in enumerate(stack):
+                    draw_card_box(card_obj, tx, ty + i * (th + 6), tw, th)
+                return
+            # Fallback: show single image
             img = self.game.board.card_images.get(c.nom)
             if img:
                 ow, oh = img.get_size()
@@ -862,9 +926,8 @@ class CastelWindow:
                 self.screen.blit(s, (tx, ty))
                 pygame.draw.rect(self.screen, self._card_color(c), (tx, ty, tw, th), 2)
                 return
-            # No image: fall through to text mode
 
-        # Basic mode: text from Inventaire.csv
+        # Basic text tooltip
         action_text = getattr(c, "action", "") or ""
         cond_text = c.condition if c.condition else "-"
         lines = [c.nom, f"Zone: {c.lieu}", f"Cond: {cond_text}"]

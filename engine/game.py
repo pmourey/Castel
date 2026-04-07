@@ -103,8 +103,15 @@ class GameState:
         return None
 
     def advance_turn_if_done(self):
-        """Call after each action. Returns True if the turn was advanced."""
+        """Call after each action. Returns True if the turn was advanced.
+        Consumes one extra_action from the Marchand before ending the turn."""
         if self.actions_remaining <= 0:
+            player = self.players[self.current_player]
+            extra = getattr(player, 'extra_actions', 0) or 0
+            if extra > 0:
+                player.extra_actions = extra - 1
+                self.actions_remaining = 1   # grant one extra action
+                return False
             self.next_turn()
             return True
         return False

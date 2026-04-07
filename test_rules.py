@@ -719,6 +719,206 @@ class TestAIFallback(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Tests: pion_owner & placement
+# ---------------------------------------------------------------------------
+
+class TestPionOwner(unittest.TestCase):
+    """Verify that place_card correctly assigns pion_owner and pions_remaining."""
+
+    def test_place_card_sets_pion_owner(self):
+        game = make_game()
+        player = game.players[0]
+        card = make_card('Roi', 'Rouge', 'Arrive à la cour')
+        player.hand.append(card)
+        before_pions = player.pions_remaining
+        game.place_card(player, card, (0, 0))
+        self.assertIs(card.pion_owner, player)
+
+    def test_place_card_decrements_pions(self):
+        game = make_game()
+        player = game.players[0]
+        card = make_card('Reine', 'Rouge', 'Arrive à la cour')
+        player.hand.append(card)
+        before_pions = player.pions_remaining
+        game.place_card(player, card, (0, 0))
+        self.assertEqual(player.pions_remaining, before_pions - 1)
+
+    def test_pion_owner_color_is_player_color(self):
+        game = make_game()
+        player = game.players[0]
+        self.assertEqual(player.pions_color, 'black')   # first player is black (2-player)
+        card = make_card('Baladin', 'Rouge', 'Arrive à la cour')
+        player.hand.append(card)
+        game.place_card(player, card, (0, 0))
+        self.assertEqual(card.pion_owner.pions_color, 'black')
+
+
+# ---------------------------------------------------------------------------
+# Tests: extra_actions (Marchand) turn-flow integration
+# ---------------------------------------------------------------------------
+
+class TestMarchandTurnFlow(unittest.TestCase):
+    """Verify that Marchand's extra action integrates with turn management."""
+
+    def test_marchand_grants_extra_action_attribute(self):
+        game = make_game()
+        player = game.players[0]
+        player.extra_actions = 0
+        card = make_card('Marchand', 'Rouge', 'Arrive à la cour')
+        CardEffects.marchand_effect(game, player, card, (0, 0))
+        self.assertEqual(player.extra_actions, 1)
+
+    def test_advance_turn_consumes_extra_action_before_passing(self):
+        """With 1 extra_action, advance_turn_if_done should NOT advance the turn
+        on the first call but should grant 1 more action."""
+        game = make_game()
+        player = game.players[0]
+        player.extra_actions = 1
+        game.current_player = 0
+        game.actions_remaining = 0
+        turn_before = game.turn
+
+        advanced = game.advance_turn_if_done()
+
+        self.assertFalse(advanced, "Turn should NOT advance while extra_action is pending")
+        self.assertEqual(game.actions_remaining, 1, "One extra action should be granted")
+        self.assertEqual(player.extra_actions, 0, "extra_actions should be consumed")
+        self.assertEqual(game.turn, turn_before, "Turn counter should be unchanged")
+
+    def test_advance_turn_passes_after_extra_action_used(self):
+        """After the extra action is consumed, the next advance_turn_if_done should advance."""
+        game = make_game()
+        player = game.players[0]
+        player.extra_actions = 0
+        game.current_player = 0
+        game.actions_remaining = 0
+        turn_before = game.turn
+
+        advanced = game.advance_turn_if_done()
+
+        self.assertTrue(advanced, "Turn should advance when no extra actions remain")
+        self.assertEqual(game.turn, turn_before + 1)
+
+
+# ---------------------------------------------------------------------------
+# Tests: protection (cards cannot be removed while protected)
+# ---------------------------------------------------------------------------
+
+class TestProtectedCards(unittest.TestCase):
+    """Protected cards must be immune to return/remove effects."""
+
+    def test_magicien_skips_protected_card(self):
+        game = make_game()
+        protected = make_card('Ambassadeur')
+        protected.protected = True
+        place_in_cour(game, protected, 1, 1)
+        apply(game, 'Magicien')
+        self.assertIs(game.board.cour[1][1], protected, "Protected card must not be moved by Magicien")
+
+    def test_traitre_skips_protected_card(self):
+        game = make_game()
+        protected = make_card('Pretre')
+        protected.protected = True
+        place_in_cour(game, protected, 0, 0)
+        apply(game, 'Traitre')
+        self.assertIs(game.board.cour[0][0], protected, "Protected card must not be removed by Traitre")
+
+    def test_traitre_removes_unprotected_card(self):
+        game = make_game()
+        unprotected = make_card('Baladin')
+        place_in_cour(game, unprotected, 2, 2)
+        apply(game, 'Traitre')
+        self.assertIsNone(game.board.cour[2][2], "Unprotected card should be removed by Traitre")
+
+    def test_roi_skips_protected_card(self):
+        game = make_game()
+        roi = make_card('Roi')
+        protected = make_card('Ambassadeur')
+        protected.protected = True
+        place_in_cour(game, roi, 0, 0)
+        place_in_cour(game, protected, 1, 0)        # cour[y=0][x=1]
+        CardEffects.roi_effect(game, game.players[0], roi, (0, 0))
+        self.assertIs(game.board.cour[0][1], protected, "Roi must not remove a protected card")
+
+    def test_reine_skips_protected_card(self):
+        game = make_game()
+        reine = make_card('Reine')
+        protected = make_card('Pretre')
+        protected.protected = True
+        place_in_cour(game, reine, 0, 0)
+        place_in_cour(game, protected, 1, 0)        # cour[y=0][x=1]
+        CardEffects.reine_effect(game, game.players[0], reine, (0, 0))
+        self.assertIs(game.board.cour[0][1], protected, "Reine must not remove a protected card")
+
+    def test_assassin_spares_protected_card(self):
+        game = make_game()
+        assassin = make_card('Assassin')
+        protected = make_card('Baladin')
+        protected.protected = True
+        place_in_cour(game, assassin, 0, 0)
+        place_in_cour(game, protected, 1, 0)        # cour[y=0][x=1]
+        CardEffects.assassin_effect(game, game.players[0], assassin, (0, 0))
+        self.assertIsNotNone(game.board.cour[0][1], "Assassin must spare a protected card")
+
+    def test_courtisan_skips_protected_card(self):
+        game = make_game()
+        courtisan = make_card('Courtisan')
+        protected = make_card('Baladin')
+        protected.protected = True
+        place_in_cour(game, courtisan, 0, 0)
+        place_in_cour(game, protected, 1, 0)        # cour[y=0][x=1]
+        CardEffects.courtisan_effect(game, game.players[0], courtisan, (0, 0))
+        self.assertIsNotNone(game.board.cour[0][1], "Courtisan must skip a protected card")
+
+
+# ---------------------------------------------------------------------------
+# Tests: Chevalier stacking tooltip data
+# ---------------------------------------------------------------------------
+
+class TestChevalierTooltipStack(unittest.TestCase):
+    """The tooltip stack logic must traverse the .protects chain."""
+
+    def test_single_card_stack_is_just_itself(self):
+        card = make_card('Baladin')
+        stack = []
+        cur = card
+        stack.append(cur)
+        while getattr(cur, 'protects', None):
+            cur = cur.protects
+            stack.append(cur)
+        self.assertEqual(len(stack), 1)
+
+    def test_chevalier_protects_chain_length_two(self):
+        base = make_card('Roi')
+        chevalier = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        chevalier.protects = base
+        base.protected = True
+        stack = []
+        cur = chevalier
+        stack.append(cur)
+        while getattr(cur, 'protects', None):
+            cur = cur.protects
+            stack.append(cur)
+        self.assertEqual(len(stack), 2)
+        self.assertIs(stack[0], chevalier)
+        self.assertIs(stack[1], base)
+
+    def test_chevalier_on_chevalier_chain_length_three(self):
+        base = make_card('Roi')
+        chev1 = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        chev2 = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        chev1.protects = base
+        chev2.protects = chev1
+        stack = []
+        cur = chev2
+        stack.append(cur)
+        while getattr(cur, 'protects', None):
+            cur = cur.protects
+            stack.append(cur)
+        self.assertEqual(len(stack), 3)
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
