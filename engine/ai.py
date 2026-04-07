@@ -38,7 +38,13 @@ class AIPlayer(Player):
         if 'cour' in lieu:
             for y in range(4):
                 for x in range(4):
-                    if game.board.cour[y][x] is None:
+                    if game.board.cour[y][x] is None and game.can_place_card(card, (x, y)):
+                        return (x, y)
+        elif 'sur une autre carte' in lieu:
+            # Chevalier: must go on an occupied cour cell
+            for y in range(4):
+                for x in range(4):
+                    if game.board.cour[y][x] is not None and game.can_place_card(card, (x, y)):
                         return (x, y)
         elif 'tour' in lieu:
             for (tx, ty), tile in game.board.tiles.items():
@@ -48,16 +54,11 @@ class AIPlayer(Player):
             for (tx, ty), tile in game.board.tiles.items():
                 if tile['type'] == 'rempart' and tile['card'] is None:
                     return (tx, ty)
-        elif card.couleur.lower() == 'violet':
-            # Chevalier: place on any occupied cour cell
-            for y in range(4):
-                for x in range(4):
-                    if game.board.cour[y][x] is not None:
-                        return (x, y)
-        else:
-            # Hors les murs: find a free exterior position
-            for ext_x in range(5, 20):
+        elif 'hors les murs' in lieu:
+            # Find a free exterior slot (starting outside the castle grid)
+            for ext_x in range(5, 25):
                 for ext_y in range(0, 5):
-                    if (ext_x, ext_y) not in game.board.exterieur:
-                        return (ext_x, ext_y)
+                    pos = (ext_x, ext_y)
+                    if pos not in game.board.exterieur and pos not in game.board.tiles:
+                        return pos
         return None

@@ -500,6 +500,118 @@ class TestVioletEffects(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Tests: can_place_card zone routing
+# ---------------------------------------------------------------------------
+
+class TestCanPlaceCard(unittest.TestCase):
+    def test_rouge_allowed_in_cour(self):
+        game = make_game()
+        card = make_card('Roi', 'Rouge', 'Arrive à la cour')
+        self.assertTrue(game.can_place_card(card, (0, 0)))
+
+    def test_rouge_rejected_on_tour(self):
+        game = make_game()
+        card = make_card('Roi', 'Rouge', 'Arrive à la cour')
+        tour_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'tour'][0]
+        self.assertFalse(game.can_place_card(card, tour_pos))
+
+    def test_bleu_allowed_on_tour(self):
+        game = make_game()
+        card = make_card('Fantome', 'Bleu', 'Arrive dans une tour')
+        tour_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'tour'][0]
+        self.assertTrue(game.can_place_card(card, tour_pos))
+
+    def test_bleu_rejected_in_cour(self):
+        game = make_game()
+        card = make_card('Fantome', 'Bleu', 'Arrive dans une tour')
+        self.assertFalse(game.can_place_card(card, (0, 0)))
+
+    def test_orange_allowed_on_rempart(self):
+        game = make_game()
+        card = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
+        rempart_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart'][0]
+        self.assertTrue(game.can_place_card(card, rempart_pos))
+
+    def test_orange_rejected_in_cour(self):
+        game = make_game()
+        card = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
+        self.assertFalse(game.can_place_card(card, (0, 0)))
+
+    def test_vert_allowed_in_exterior(self):
+        game = make_game()
+        card = make_card('Dragon', 'Vert', 'Arrive hors les murs')
+        self.assertTrue(game.can_place_card(card, (8, 0)))
+
+    def test_vert_engin_siege_allowed_in_exterior(self):
+        game = make_game()
+        card = make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')
+        self.assertTrue(game.can_place_card(card, (8, 0)))
+
+    def test_vert_rejected_in_cour(self):
+        game = make_game()
+        card = make_card('Dragon', 'Vert', 'Arrive hors les murs')
+        self.assertFalse(game.can_place_card(card, (0, 0)))
+
+    def test_chevalier_allowed_on_occupied_cour_cell(self):
+        game = make_game()
+        card = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        existing = make_card('Roi')
+        place_in_cour(game, existing, 2, 2)
+        self.assertTrue(game.can_place_card(card, (2, 2)))
+
+    def test_chevalier_rejected_on_empty_cour_cell(self):
+        game = make_game()
+        card = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        self.assertFalse(game.can_place_card(card, (0, 0)))  # empty cell
+
+    def test_chevalier_rejected_on_rempart(self):
+        game = make_game()
+        card = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        rempart_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart'][0]
+        self.assertFalse(game.can_place_card(card, rempart_pos))
+
+
+# ---------------------------------------------------------------------------
+# Tests: AI fallback when no placement possible
+# ---------------------------------------------------------------------------
+
+class TestAIFallback(unittest.TestCase):
+    def test_ai_draws_when_cannot_place(self):
+        """AI should draw when no placement is possible but deck is not empty."""
+        game = make_game()
+        ai = game.players[1]
+        # Give AI only exterior cards, but fill the exterior so it can't place either
+        ai.hand = [make_card('Dragon', 'Vert', 'Arrive hors les murs')]
+        for x in range(5, 25):
+            for y in range(5):
+                game.board.exterieur[(x, y)] = make_card('Barbare', 'Vert')
+        ai.deck = [make_card('Roi')]
+        action = ai.choose_action(game)
+        self.assertEqual(action[0], 'draw', "AI should draw when no valid placement exists")
+
+    def test_ai_exchanges_when_cannot_place_and_no_deck(self):
+        """AI should exchange when no placement is possible and deck is empty."""
+        game = make_game()
+        ai = game.players[1]
+        # Chevalier with empty cour — no valid target
+        ai.hand = [make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')]
+        ai.deck = []
+        game.exchange = [make_card('Roi')]
+        action = ai.choose_action(game)
+        self.assertEqual(action[0], 'exchange', "AI should exchange when stuck and no deck")
+
+    def test_ai_skips_when_fully_stuck(self):
+        """AI should skip when no placement, no deck, no exchange."""
+        game = make_game()
+        ai = game.players[1]
+        ai.hand = [make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')]
+        ai.deck = []
+        game.exchange = []
+        action = ai.choose_action(game)
+        self.assertEqual(action[0], 'skip', "AI should skip when fully stuck")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 

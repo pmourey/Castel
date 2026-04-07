@@ -116,20 +116,22 @@ class GameState:
 
     def can_place_card(self, card, position):
         """Check if a card can be placed at a given position"""
-        # Check if zone matches card's location requirement
         zone = self._get_zone_at_position(position)
-        card_location = getattr(card, 'lieu', '').lower()
+        lieu = getattr(card, 'lieu', '').lower()
 
-        if zone == 'cour' and 'cour' not in card_location:
-            return False
-        if zone == 'tour' and 'tour' not in card_location:
-            return False
-        if zone == 'rempart' and 'rempart' not in card_location:
-            return False
-        if zone == 'exterieur' and 'extérieur' not in card_location and 'chevalier' not in card_location:
-            return False
-
-        return True
+        if zone == 'cour':
+            # Chevalier (violet) goes on top of an existing card
+            if 'sur une autre carte' in lieu:
+                x, y = position
+                return 0 <= x < 4 and 0 <= y < 4 and self.board.cour[y][x] is not None
+            return 'cour' in lieu
+        if zone == 'tour':
+            return 'tour' in lieu
+        if zone == 'rempart':
+            return 'rempart' in lieu
+        if zone == 'exterieur':
+            return 'hors les murs' in lieu
+        return False
 
     def _get_zone_at_position(self, position):
         """Determine the zone for a given position"""

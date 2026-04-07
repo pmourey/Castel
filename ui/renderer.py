@@ -281,8 +281,17 @@ class CastelWindow:
                     result = self.game.place_card(current_player, card, position)
                     if result == 'win':
                         self.add_log(f"🏆 IA {self.game.current_player + 1} a gagné!")
-                    else:
+                    elif result:
                         self.add_log(f"IA joue: {card.nom} à {position}")
+                    else:
+                        # Placement rejected — fall back to draw or exchange
+                        self.add_log(f"IA ne peut pas placer {card.nom}, pioche/échange")
+                        if current_player.deck:
+                            self.game.draw_card(current_player)
+                        elif self.game.exchange and current_player.hand:
+                            self.game.exchange_card(current_player, 0, 0)
+                        else:
+                            self.game.actions_remaining -= 1  # force skip
                 elif action[0] == 'draw':
                     self.game.draw_card(current_player)
                     self.add_log(f"IA {self.game.current_player + 1} pioche")
@@ -291,8 +300,9 @@ class CastelWindow:
                     self.game.exchange_card(current_player, hi, ei)
                     self.add_log(f"IA {self.game.current_player + 1} échange")
                 else:
-                    # Truly stuck: force advance
-                    self.game.actions_remaining = 0
+                    # Truly stuck: force skip this action
+                    self.game.actions_remaining -= 1
+                    self.add_log(f"IA {self.game.current_player + 1} passe")
 
                 if self.game.advance_turn_if_done():
                     self.ai_delay = 60
