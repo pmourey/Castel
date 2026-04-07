@@ -120,6 +120,8 @@ class CastelWindow:
                         if current_player.deck:
                             self.game.draw_card(current_player)
                             self.add_log(f"J{self.game.current_player + 1} a tiré une carte")
+                            if self.game.advance_turn_if_done():
+                                self.add_log(f"Tour suivant: J{self.game.current_player + 1}")
                         return
 
                     if self.action_buttons['exchange'].collidepoint(x, y):
@@ -135,9 +137,12 @@ class CastelWindow:
                         return
 
                     if self.action_buttons['skip'].collidepoint(x, y):
-                        # Skip to next turn
-                        self.game.next_turn()
-                        self.add_log(f"J{self.game.current_player + 1} débute son tour")
+                        # Skip current action (counts as an action)
+                        self.game.actions_remaining -= 1
+                        if self.game.advance_turn_if_done():
+                            self.add_log(f"Tour suivant: J{self.game.current_player + 1}")
+                        else:
+                            self.add_log("Action passée")
                         self.exchange_mode = False
                         return
 
@@ -179,6 +184,8 @@ class CastelWindow:
                                         self.exchange_mode = False
                                         self.selected_hand_card_idx = None
                                         self.selected_exchange_card_idx = None
+                                        if self.game.advance_turn_if_done():
+                                            self.add_log(f"Tour suivant: J{self.game.current_player + 1}")
                                     except Exception as e:
                                         self.add_log(f"❌ Échange impossible: {str(e)}")
                             return
@@ -206,12 +213,12 @@ class CastelWindow:
 
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:  # Left mouse button
                 if self.dragging_card:
-                    # Stop dragging the card
                     x, y = event.pos
                     cour_start_x = CASTLE_X + 10
                     cour_start_y = TOP_MARGIN + 20
                     cell_size = CASTLE_CELL_SIZE
                     placed = False
+                    current_player = self.game.players[self.game.current_player]
 
                     # Check courtyard placement
                     for cx in range(4):
@@ -222,8 +229,12 @@ class CastelWindow:
                                 if self.game.board.cour[cy][cx] is None:
                                     position = (cx, cy)
                                     if self._is_valid_placement(self.dragging_card, position):
-                                        self.game.place_card(self.game.players[self.game.current_player], self.dragging_card, position)
-                                        self.add_log(f"Carte placée: {self.dragging_card.nom}")
+                                        result = self.game.place_card(current_player, self.dragging_card, position)
+                                        if result == 'win':
+                                            self.add_log(f"🏆 Joueur {self.game.current_player + 1} a gagné!")
+                                        elif result:
+                                            self.add_log(f"Carte placée: {self.dragging_card.nom}")
+                                            self.game.advance_turn_if_done()
                                         placed = True
                                     else:
                                         self.add_log(f"❌ Placement invalide pour {self.dragging_card.nom}")
@@ -240,29 +251,12 @@ class CastelWindow:
                                 if tile['card'] is None:
                                     position = (tx, ty)
                                     if self._is_valid_placement(self.dragging_card, position):
-                                        self.game.place_card(self.game.players[self.game.current_player], self.dragging_card, position)
-                                        self.add_log(f"Carte placée: {self.dragging_card.nom} sur {tile['type']}")
-                                        placed = True
-                                    else:
-                                        self.add_log(f"❌ Placement invalide pour {self.dragging_card.nom}")
-                                else:
-                                    self.add_log(f"❌ {tile['type']} occupé!")
-                                break
-
-                    if not placed:
-                        self.add_log(f"❌ Placement annulé")
-                    self.dragging_card = None
-                    self.selected_card = None
-                    if not placed:
-                        for (tx, ty), tile in self.game.board.tiles.items():
-                            px = cour_start_x + tx * cell_size
-                            py = cour_start_y + ty * cell_size
-                            if px <= x <= px + cell_size and py <= y <= py + cell_size:
-                                if tile['card'] is None:
-                                    position = (tx, ty)
-                                    if self._is_valid_placement(self.dragging_card, position):
-                                        self.game.place_card(self.game.players[self.game.current_player], self.dragging_card, position)
-                                        self.add_log(f"Carte placée: {self.dragging_card.nom} sur {tile['type']}")
+                                        result = self.game.place_card(current_player, self.dragging_card, position)
+                                        if result == 'win':
+                                            self.add_log(f"🏆 Joueur {self.game.current_player + 1} a gagné!")
+                                        elif result:
+                                            self.add_log(f"Carte placée: {self.dragging_card.nom} sur {tile['type']}")
+                                            self.game.advance_turn_if_done()
                                         placed = True
                                     else:
                                         self.add_log(f"❌ Placement invalide pour {self.dragging_card.nom}")
@@ -278,23 +272,32 @@ class CastelWindow:
     def update(self):
         current_player = self.game.players[self.game.current_player]
         if not current_player.is_human:
-            # AI turn with delay - AI can perform multiple actions per turn
+            # AI turn with delay
             self.ai_delay -= 1
             if self.ai_delay <= 0:
-                card, position = current_player.choose_action(self.game)
-                if card and position:
-                    self.game.place_card(current_player, card, position)
-                    self.add_log(f"IA joue: {card.nom} à {position}")
-                    # Reset delay for next action if player still has actions
-                    if self.game.actions_remaining > 0:
-                        self.ai_delay = 30  # Shorter delay between actions
+                action = current_player.choose_action(self.game)
+                if action[0] == 'place':
+                    _, card, position = action
+                    result = self.game.place_card(current_player, card, position)
+                    if result == 'win':
+                        self.add_log(f"🏆 IA {self.game.current_player + 1} a gagné!")
                     else:
-                        self.ai_delay = 60  # Normal delay before next player's turn
+                        self.add_log(f"IA joue: {card.nom} à {position}")
+                elif action[0] == 'draw':
+                    self.game.draw_card(current_player)
+                    self.add_log(f"IA {self.game.current_player + 1} pioche")
+                elif action[0] == 'exchange':
+                    _, hi, ei = action
+                    self.game.exchange_card(current_player, hi, ei)
+                    self.add_log(f"IA {self.game.current_player + 1} échange")
                 else:
-                    # No valid move, skip to next player
-                    self.game.next_turn()
-                    self.game.actions_remaining = 2
+                    # Truly stuck: force advance
+                    self.game.actions_remaining = 0
+
+                if self.game.advance_turn_if_done():
                     self.ai_delay = 60
+                else:
+                    self.ai_delay = 30  # Same player still has actions
 
     def _update_tooltip(self):
         """Mettre à jour la carte sur laquelle on hover pour les tooltips."""

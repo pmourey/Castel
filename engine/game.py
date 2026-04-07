@@ -38,7 +38,9 @@ class GameState:
         self.turn = 0
         self.actions_remaining = 2  # Chaque joueur a 2 actions par tour
         self.current_action = 0  # 0=draw, 1=exchange, 2=place
-        self.last_placed_card = None  # Pour les effets qui dépendent du dernier placement
+        self.last_placed_card = None    # Dernière carte placée (pour enchanteur)
+        self.previous_placed_card = None  # Avant-dernière carte placée
+        self.last_displaced_card = None   # Carte déplacée lors du dernier placement (pour fantôme)
 
         # Generate initial castle
         self.generate_castle()
@@ -86,8 +88,6 @@ class GameState:
             card = player.deck.pop(0)
             player.hand.append(card)
             self.actions_remaining -= 1
-            if self.actions_remaining <= 0:
-                self.next_turn()
             return card
         return None
 
@@ -99,10 +99,15 @@ class GameState:
             player.hand.append(exchange_card)
             self.exchange.append(hand_card)
             self.actions_remaining -= 1
-            if self.actions_remaining <= 0:
-                self.next_turn()
             return exchange_card
         return None
+
+    def advance_turn_if_done(self):
+        """Call after each action. Returns True if the turn was advanced."""
+        if self.actions_remaining <= 0:
+            self.next_turn()
+            return True
+        return False
 
     def check_win_condition(self, player):
         """Check if player has won according to official rules"""
@@ -177,37 +182,38 @@ class GameState:
         if not self.can_place_card(card, position):
             return False
 
+        # Save the card currently at this position (for fantôme effect)
+        x, y = position
+        if (x, y) in self.board.tiles:
+            self.last_displaced_card = self.board.tiles[(x, y)].get('card')
+        elif 0 <= x < 4 and 0 <= y < 4:
+            self.last_displaced_card = self.board.cour[y][x]
+        else:
+            self.last_displaced_card = self.board.exterieur.get((x, y))
+
         # Check for special rules
         zone = self._get_zone_at_position(position)
 
         # Soldier and siege engine rules
         if "Soldat" in card.nom and zone == 'rempart':
-            # Count soldiers on this rempart
-            soldiers_on_rempart = 0
-            for (tx, ty), tile in self.board.tiles.items():
-                if tile['type'] == 'rempart' and tile['card'] and "Soldat" in tile['card'].nom:
-                    soldiers_on_rempart += 1
-
-            # If 4th soldier, check for siege engine
-            if soldiers_on_rempart >= 3:
-                # Find siege engine opposite and remove it
-                self._handle_fourth_soldier(card, position)
+            self._handle_fourth_soldier(card, position)
 
         if "Engin" in card.nom:
-            # Siege engine rules
-            engines_count = sum(1 for (_, _), tile in self.board.tiles.items()
-                              if "Engin" in getattr(tile['card'], 'nom', ''))
-            engines_count += sum(1 for card_in_ext in self.board.exterieur.values()
-                                if card_in_ext and "Engin" in getattr(card_in_ext, 'nom', ''))
-
-            # If 4th engine, remove all soldiers
+            engines_count = sum(
+                1 for ext_card in self.board.exterieur.values()
+                if ext_card and "Engin" in getattr(ext_card, 'nom', '')
+            )
             if engines_count >= 3:
                 self._handle_fourth_siege_engine()
+
+        # Track card ownership for pion rules
+        card.pion_owner = player
 
         # Remove from hand and place on board
         player.hand.remove(card)
         self.board.place_card(card, position)
         self.last_position = position
+        self.previous_placed_card = self.last_placed_card
         self.last_placed_card = card
 
         # Place pion on card
@@ -219,14 +225,11 @@ class GameState:
 
         # Check win condition
         if self.check_win_condition(player):
-            return True  # Player won
+            return 'win'
 
         # Decrement actions
         self.actions_remaining -= 1
-        if self.actions_remaining <= 0:
-            self.next_turn()
-
-        return True
+        return 'ok'
 
     def _handle_fourth_soldier(self, card, position):
         """Handle the special rule for 4th soldier on a rempart"""

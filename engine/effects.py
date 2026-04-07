@@ -10,45 +10,49 @@ class CardEffects:
     @staticmethod
     def parse_effect(card_name, action_text):
         """Parse the action text and return effect callable."""
-        # This will be expanded as we implement each card's effect
         actions = {
-            "Fantôme": CardEffects.fantome_effect,
-            "Guetteur": CardEffects.guetteur_effect,
-            "Magicien": CardEffects.magicien_effect,
-            "Archer": CardEffects.archer_effect,
-            "Sorcière": CardEffects.sorciere_effect,
-            "Alchimiste": CardEffects.alchimiste_effect,
-            "Capitaine": CardEffects.capitaine_effect,
-            "Traître": CardEffects.traitre_effect,
-            "Soldat": CardEffects.soldat_effect,
-            "Marchand": CardEffects.marchand_effect,
-            "Roi": CardEffects.roi_effect,
-            "Baladin": CardEffects.baladin_effect,
-            "Courtisane": CardEffects.courtisane_effect,
-            "Reine": CardEffects.reine_effect,
-            "Princesse": CardEffects.princesse_effect,
-            "Prince": CardEffects.prince_effect,
-            "Intrigant": CardEffects.intrigant_effect,
-            "Espion": CardEffects.espion_effect,
-            "Ambassadeur": CardEffects.ambassadeur_effect,
-            "Voleur": CardEffects.voleur_effect,
-            "Bouffon": CardEffects.bouffon_effect,
-            "Fou": CardEffects.fou_effect,
-            "Prêtre": CardEffects.pretre_effect,
-            "Dame de compagnie": CardEffects.dame_compagnie_effect,
-            "Courtisan": CardEffects.courtisan_effect,
-            "Assassin": CardEffects.assassin_effect,
-            "Conseiller du roi": CardEffects.conseiller_roi_effect,
-            "Favorite": CardEffects.favorite_effect,
-            "Prince charmant": CardEffects.prince_charmant_effect,
-            "Chevalier noir": CardEffects.chevalier_noir_effect,
-            "Barbare": CardEffects.barbare_effect,
-            "Fée": CardEffects.fee_effect,
-            "Enchanteur": CardEffects.enchanteur_effect,
-            "Engin de siège": CardEffects.engin_siege_effect,
-            "Dragon": CardEffects.dragon_effect,
-            "Hérault": CardEffects.herault_effect,
-            "Chevalier": CardEffects.chevalier_effect,
+            # Bleu (tours)
+            "Fantome":              CardEffects.fantome_effect,
+            "Guetteur":             CardEffects.guetteur_effect,
+            "Magicien":             CardEffects.magicien_effect,
+            "Archer":               CardEffects.archer_effect,
+            "Sorciere":             CardEffects.sorciere_effect,
+            "Alchimiste":           CardEffects.alchimiste_effect,
+            # Orange (remparts)
+            "Capitaine":            CardEffects.capitaine_effect,
+            "Traitre":              CardEffects.traitre_effect,
+            "Soldat":               CardEffects.soldat_effect,
+            # Rouge (cour)
+            "Marchand":             CardEffects.marchand_effect,
+            "Roi":                  CardEffects.roi_effect,
+            "Baladin":              CardEffects.baladin_effect,
+            "Courtisane":           CardEffects.courtisane_effect,
+            "Reine":                CardEffects.reine_effect,
+            "Princesse":            CardEffects.princesse_effect,
+            "Prince":               CardEffects.prince_effect,
+            "Intriguant":           CardEffects.intrigant_effect,
+            "Espion":               CardEffects.espion_effect,
+            "Ambassadeur":          CardEffects.ambassadeur_effect,
+            "Voleur":               CardEffects.voleur_effect,
+            "Bouffon":              CardEffects.bouffon_effect,
+            "Fou":                  CardEffects.fou_effect,
+            "Pretre":               CardEffects.pretre_effect,
+            "Dame_de_compagnie":    CardEffects.dame_compagnie_effect,
+            "Courtisan":            CardEffects.courtisan_effect,
+            "Assassin":             CardEffects.assassin_effect,
+            "Conseiller_du_roi":    CardEffects.conseiller_roi_effect,
+            "Favorite":             CardEffects.favorite_effect,
+            "Prince_charmant":      CardEffects.prince_charmant_effect,
+            "Chevalier_noir":       CardEffects.chevalier_noir_effect,
+            # Vert (hors les murs)
+            "Barbare":              CardEffects.barbare_effect,
+            "Fee":                  CardEffects.fee_effect,
+            "Enchanteur":           CardEffects.enchanteur_effect,
+            "Engin_de_siege":       CardEffects.engin_siege_effect,
+            "Dragon":               CardEffects.dragon_effect,
+            "Herault":              CardEffects.herault_effect,
+            # Violet (sur une autre carte)
+            "Chevalier":            CardEffects.chevalier_effect,
         }
         return actions.get(card_name, CardEffects.default_effect)
 
@@ -57,27 +61,40 @@ class CardEffects:
         """Default effect: card is placed but has no special action."""
         pass
 
+    @staticmethod
+    def _return_card(game, card):
+        """Return a card to its owner's hand, or to exchange if owner unknown."""
+        owner = getattr(card, 'pion_owner', None)
+        if owner:
+            owner.hand.append(card)
+        else:
+            game.exchange.append(card)
+
     # Bleu effects
     @staticmethod
     def fantome_effect(game, player, card, position):
         """Le fantôme renvoie la carte dont il prend la place."""
-        x, y = position
-        existing_card = game.board.cour[y][x]
-        if existing_card:
-            game.board.cour[y][x] = None
-            game.exchange.append(existing_card)
+        displaced = game.last_displaced_card
+        if displaced:
+            CardEffects._return_card(game, displaced)
+            game.last_displaced_card = None
 
     @staticmethod
     def guetteur_effect(game, player, card, position):
-        """Le guetteur déplace un soldat."""
-        # Find a soldat and move it
-        for cy in range(4):
-            for cx in range(4):
-                if game.board.cour[cy][cx] and "Soldat" in game.board.cour[cy][cx].nom:
-                    # Simple displacement: just remove it
-                    game.exchange.append(game.board.cour[cy][cx])
-                    game.board.cour[cy][cx] = None
-                    return
+        """Le guetteur déplace un soldat vers une autre case de rempart libre."""
+        for (tx, ty), tile in game.board.tiles.items():
+            if tile['type'] == 'rempart' and tile['card'] and 'Soldat' in tile['card'].nom:
+                soldat = tile['card']
+                # Move to another free rempart
+                for (nx, ny), ntile in game.board.tiles.items():
+                    if ntile['type'] == 'rempart' and ntile['card'] is None and (nx, ny) != (tx, ty):
+                        ntile['card'] = soldat
+                        tile['card'] = None
+                        return
+                # No free rempart: return soldat to owner
+                CardEffects._return_card(game, soldat)
+                tile['card'] = None
+                return
 
     @staticmethod
     def magicien_effect(game, player, card, position):
@@ -96,8 +113,11 @@ class CardEffects:
     @staticmethod
     def archer_effect(game, player, card, position):
         """L'archer renvoie une carte se trouvant hors les murs."""
-        if game.exchange:
-            game.exchange.pop(0)  # Remove from exchange
+        if game.board.exterieur:
+            ext_pos = next(iter(game.board.exterieur))
+            removed = game.board.exterieur.pop(ext_pos)
+            if removed:
+                CardEffects._return_card(game, removed)
 
     @staticmethod
     def sorciere_effect(game, player, card, position):
@@ -123,45 +143,40 @@ class CardEffects:
     # Orange effects
     @staticmethod
     def capitaine_effect(game, player, card, position):
-        """Le capitaine est un soldat. Protège tous les autres soldats sur le même rempart."""
-        # Mark surrounding soldiers as protected
-        x, y = position
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < 4 and 0 <= ny < 4:
-                    nearby_card = game.board.cour[ny][nx]
-                    if nearby_card and "Soldat" in nearby_card.nom:
-                        nearby_card.protected = True
+        """Le capitaine protège tous les soldats sur le même rempart."""
+        for (tx, ty), tile in game.board.tiles.items():
+            if tile['type'] == 'rempart' and tile['card'] and 'Soldat' in tile['card'].nom:
+                tile['card'].protected = True
 
     @staticmethod
     def traitre_effect(game, player, card, position):
-        """Le traître est un soldat. Renvoie une carte se trouvant sur une case de cour voisine."""
+        """Le traître renvoie une carte se trouvant sur une case de cour voisine."""
         x, y = position
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                if dx == 0 and dy == 0:
-                    continue
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < 4 and 0 <= ny < 4:
-                    card_to_remove = game.board.cour[ny][nx]
-                    if card_to_remove:
-                        game.exchange.append(card_to_remove)
-                        game.board.cour[ny][nx] = None
-                        break
+        # Adjacent cour cells for a rempart tile
+        candidates = []
+        for cx in range(4):
+            for cy in range(4):
+                if game.board.cour[cy][cx] is not None:
+                    candidates.append((cx, cy))
+        if candidates:
+            cx, cy = random.choice(candidates)
+            removed = game.board.cour[cy][cx]
+            CardEffects._return_card(game, removed)
+            game.board.cour[cy][cx] = None
 
     @staticmethod
     def soldat_effect(game, player, card, position):
         """Le quatrième soldat arrivant sur un rempart renvoie l'engin de siège qui se trouve en face."""
-        # Count soldiers already placed
-        soldat_count = sum(1 for cy in range(4) for cx in range(4)
-                          if game.board.cour[cy][cx] and "Soldat" in game.board.cour[cy][cx].nom)
+        soldat_count = sum(
+            1 for (tx, ty), tile in game.board.tiles.items()
+            if tile['type'] == 'rempart' and tile['card'] and 'Soldat' in tile['card'].nom
+        )
         if soldat_count >= 4:
-            # Remove a siege engine from exchange
-            for i, card_in_exchange in enumerate(game.exchange):
-                if "Engin" in card_in_exchange.nom:
-                    game.exchange.pop(i)
-                    break
+            for ext_pos, ext_card in list(game.board.exterieur.items()):
+                if ext_card and 'Engin' in ext_card.nom:
+                    del game.board.exterieur[ext_pos]
+                    CardEffects._return_card(game, ext_card)
+                    return
 
     # Rouge effects
     @staticmethod
@@ -173,16 +188,14 @@ class CardEffects:
     @staticmethod
     def roi_effect(game, player, card, position):
         """Le roi renvoie du château n'importe quelle autre carte."""
-        # Remove a random card from board
-        cards_on_board = []
-        for cy in range(4):
-            for cx in range(4):
-                if game.board.cour[cy][cx] and game.board.cour[cy][cx] != card:
-                    cards_on_board.append((cx, cy))
+        cards_on_board = [
+            (cx, cy) for cy in range(4) for cx in range(4)
+            if game.board.cour[cy][cx] and game.board.cour[cy][cx] is not card
+        ]
         if cards_on_board:
             cx, cy = random.choice(cards_on_board)
-            removed_card = game.board.cour[cy][cx]
-            game.exchange.append(removed_card)
+            removed = game.board.cour[cy][cx]
+            CardEffects._return_card(game, removed)
             game.board.cour[cy][cx] = None
     
     @staticmethod
@@ -218,16 +231,14 @@ class CardEffects:
     @staticmethod
     def reine_effect(game, player, card, position):
         """La reine renvoie de la cour n'importe quelle autre carte."""
-        # Remove a random card from court
-        cards_on_board = []
-        for cy in range(4):
-            for cx in range(4):
-                if game.board.cour[cy][cx] and game.board.cour[cy][cx] != card:
-                    cards_on_board.append((cx, cy))
+        cards_on_board = [
+            (cx, cy) for cy in range(4) for cx in range(4)
+            if game.board.cour[cy][cx] and game.board.cour[cy][cx] is not card
+        ]
         if cards_on_board:
             cx, cy = random.choice(cards_on_board)
-            removed_card = game.board.cour[cy][cx]
-            game.exchange.append(removed_card)
+            removed = game.board.cour[cy][cx]
+            CardEffects._return_card(game, removed)
             game.board.cour[cy][cx] = None
     
     @staticmethod
@@ -312,14 +323,19 @@ class CardEffects:
     
     @staticmethod
     def fou_effect(game, player, card, position):
-        """Chaque joueur pioche une carte au hasard du jeu de son voisin de droite."""
+        """Chaque joueur pioche une carte au hasard du jeu de son voisin de droite (simultané)."""
+        # Determine what each player will steal BEFORE any removal
+        to_steal = []
         for i, p in enumerate(game.players):
             next_idx = (i + 1) % len(game.players)
-            other_player = game.players[next_idx]
-            if other_player.hand:
-                stolen_card = random.choice(other_player.hand)
-                other_player.hand.remove(stolen_card)
-                p.hand.append(stolen_card)
+            other = game.players[next_idx]
+            stolen = random.choice(other.hand) if other.hand else None
+            to_steal.append((p, stolen, other))
+        # Apply simultaneously: remove then give
+        for p, stolen, other in to_steal:
+            if stolen is not None and stolen in other.hand:
+                other.hand.remove(stolen)
+                p.hand.append(stolen)
     
     @staticmethod
     def pretre_effect(game, player, card, position):
@@ -416,70 +432,87 @@ class CardEffects:
     @staticmethod
     def barbare_effect(game, player, card, position):
         """Le barbare renvoie une carte se trouvant dans une tour ou sur un rempart."""
-        # Remove a random card from court
-        cards_on_board = []
-        for cy in range(4):
-            for cx in range(4):
-                if game.board.cour[cy][cx]:
-                    cards_on_board.append((cx, cy))
-        if cards_on_board:
-            cx, cy = random.choice(cards_on_board)
-            game.exchange.append(game.board.cour[cy][cx])
-            game.board.cour[cy][cx] = None
+        occupied = [(pos, tile) for pos, tile in game.board.tiles.items() if tile['card']]
+        if occupied:
+            pos, tile = random.choice(occupied)
+            removed = tile['card']
+            tile['card'] = None
+            CardEffects._return_card(game, removed)
 
     @staticmethod
     def fee_effect(game, player, card, position):
         """La fée attire hors les murs l'un des personnages se trouvant dans le château."""
-        # Pull a random card from court to exterior
-        cards_on_board = []
-        for cy in range(4):
-            for cx in range(4):
-                if game.board.cour[cy][cx]:
-                    cards_on_board.append((cx, cy))
-        if cards_on_board:
-            cx, cy = random.choice(cards_on_board)
-            pulled_card = game.board.cour[cy][cx]
+        cards_in_cour = [
+            (cx, cy) for cy in range(4) for cx in range(4)
+            if game.board.cour[cy][cx]
+        ]
+        if cards_in_cour:
+            cx, cy = random.choice(cards_in_cour)
+            pulled = game.board.cour[cy][cx]
             game.board.cour[cy][cx] = None
-            game.exchange.append(pulled_card)
+            # Place in exterior at a free position
+            ext_x = 6
+            while (ext_x, 0) in game.board.exterieur:
+                ext_x += 1
+            game.board.exterieur[(ext_x, 0)] = pulled
 
     @staticmethod
     def enchanteur_effect(game, player, card, position):
-        """L'enchanteur renvoie la dernière carte à avoir été placée."""
-        # Find the last placed card and remove it
-        # For now, remove the card at the position just before this one
-        if hasattr(game, 'last_placed_card') and game.last_placed_card:
-            game.exchange.append(game.last_placed_card)
-            game.last_placed_card = None
+        """L'enchanteur renvoie la dernière carte à avoir été placée (avant lui)."""
+        prev = game.previous_placed_card
+        if prev:
+            # Remove it from wherever it is on the board
+            for cy in range(4):
+                for cx in range(4):
+                    if game.board.cour[cy][cx] is prev:
+                        game.board.cour[cy][cx] = None
+                        CardEffects._return_card(game, prev)
+                        game.previous_placed_card = None
+                        return
+            for (tx, ty), tile in game.board.tiles.items():
+                if tile['card'] is prev:
+                    tile['card'] = None
+                    CardEffects._return_card(game, prev)
+                    game.previous_placed_card = None
+                    return
+            for ext_pos, ext_card in list(game.board.exterieur.items()):
+                if ext_card is prev:
+                    del game.board.exterieur[ext_pos]
+                    CardEffects._return_card(game, prev)
+                    game.previous_placed_card = None
+                    return
 
     @staticmethod
     def engin_siege_effect(game, player, card, position):
         """Le quatrième engin de siège renvoie tous les soldats se trouvant sur les remparts."""
-        # Count siege engines
-        siege_count = sum(1 for cy in range(4) for cx in range(4) 
-                         if game.board.cour[cy][cx] and "Engin" in game.board.cour[cy][cx].nom)
-        if siege_count >= 4:
-            # Remove all soldiers
-            for cy in range(4):
-                for cx in range(4):
-                    if game.board.cour[cy][cx] and "Soldat" in game.board.cour[cy][cx].nom:
-                        game.exchange.append(game.board.cour[cy][cx])
-                        game.board.cour[cy][cx] = None
+        engine_count = sum(
+            1 for ext_card in game.board.exterieur.values()
+            if ext_card and 'Engin' in ext_card.nom
+        )
+        if engine_count >= 4:
+            for (tx, ty), tile in list(game.board.tiles.items()):
+                if tile['type'] == 'rempart' and tile['card']:
+                    if not getattr(tile['card'], 'protected', False):
+                        CardEffects._return_card(game, tile['card'])
+                        tile['card'] = None
 
     @staticmethod
     def dragon_effect(game, player, card, position):
         """Le dragon renvoie une carte hors les murs et une carte dans une tour ou rempart."""
-        # Remove two random cards from board
-        cards_on_board = []
-        for cy in range(4):
-            for cx in range(4):
-                if game.board.cour[cy][cx]:
-                    cards_on_board.append((cx, cy))
-        
-        if len(cards_on_board) >= 2:
-            selections = random.sample(cards_on_board, 2)
-            for cx, cy in selections:
-                game.exchange.append(game.board.cour[cy][cx])
-                game.board.cour[cy][cx] = None
+        if game.board.exterieur:
+            ext_pos = next(iter(game.board.exterieur))
+            removed = game.board.exterieur.pop(ext_pos)
+            if removed:
+                CardEffects._return_card(game, removed)
+
+        occupied_tiles = [(pos, tile) for pos, tile in game.board.tiles.items() if tile['card']]
+        if occupied_tiles:
+            pos, tile = random.choice(occupied_tiles)
+            removed = tile['card']
+            tile['card'] = None
+            CardEffects._return_card(game, removed)
+
+
 
     @staticmethod
     def herault_effect(game, player, card, position):

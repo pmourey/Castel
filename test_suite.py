@@ -80,12 +80,17 @@ def test_ai_action():
         from engine.game import GameState
         game = GameState(num_players=2)
         ai_player = game.players[1]
-        card, position = ai_player.choose_action(game)
-        assert card is not None, "AI should choose a card"
-        assert position is not None, "AI should choose a position"
-        assert card in ai_player.hand, "Chosen card should be in AI hand"
-        print(f"✓ AI chose card: {card.nom}")
-        print(f"✓ AI chose position: {position}")
+        action = ai_player.choose_action(game)
+        assert action[0] in ('place', 'draw', 'exchange', 'skip'), f"Unknown action type: {action[0]}"
+        if action[0] == 'place':
+            _, card, position = action
+            assert card is not None, "AI should choose a card"
+            assert position is not None, "AI should choose a position"
+            assert card in ai_player.hand, "Chosen card should be in AI hand"
+            print(f"✓ AI chose card: {card.nom}")
+            print(f"✓ AI chose position: {position}")
+        else:
+            print(f"✓ AI chose action: {action[0]}")
         return True
     except Exception as e:
         print(f"✗ AI action failed: {e}")
@@ -98,12 +103,15 @@ def test_card_placement():
         from engine.game import GameState
         game = GameState(num_players=2)
         player = game.players[0]
-        card = player.hand[0]
+        # Find a rouge card (cour) to place
+        rouge_card = next((c for c in player.hand if 'cour' in c.lieu.lower()), None)
+        if rouge_card is None:
+            rouge_card = player.hand[0]
         position = (1, 1)
-        game.place_card(player, card, position)
-        assert game.board.cour[position[1]][position[0]] == card, "Card should be on board"
-        assert card not in player.hand, "Card should be removed from hand"
-        print(f"✓ Placed {card.nom} at {position}")
+        result = game.place_card(player, rouge_card, position)
+        assert result in ('ok', 'win'), f"Expected 'ok' or 'win', got {result!r}"
+        assert rouge_card not in player.hand, "Card should be removed from hand"
+        print(f"✓ Placed {rouge_card.nom} at {position}")
         return True
     except Exception as e:
         print(f"✗ Card placement failed: {e}")

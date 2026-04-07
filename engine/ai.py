@@ -6,50 +6,58 @@ class AIPlayer(Player):
         super().__init__(is_human=False, color=color)
 
     def choose_action(self, game):
-        """Choose the next action for the AI player"""
-        # Priority: 
-        # 1. If we have no cards in hand but have cards in deck, draw
-        # 2. Try to play a card if possible
-        # 3. Otherwise exchange or draw
-        
-        if len(self.hand) == 0 and len(self.deck) > 0:
-            # Draw a card
-            game.draw_card(self)
-            return None, None
-        
-        if self.hand:
-            # Simple AI: try to play a card
-            card = random.choice(self.hand)
-            # Choose position based on lieu
-            lieu = card.lieu.lower()
-            if "cour" in lieu:
-                # Try to find empty courtyard position
-                for y in range(4):
-                    for x in range(4):
-                        if game.board.cour[y][x] is None:
-                            return card, (x, y)
-            elif "tour" in lieu:
-                # Try to find empty tower
-                for (tx, ty), tile in game.board.tiles.items():
-                    if tile['type'] == 'tour' and tile['card'] is None:
-                        return card, (tx, ty)
-            elif "rempart" in lieu:
-                # Try to find empty wall
-                for (tx, ty), tile in game.board.tiles.items():
-                    if tile['type'] == 'rempart' and tile['card'] is None:
-                        return card, (tx, ty)
-            else:
-                # Exterior - just pick a random position
-                return card, (random.randint(5,10), random.randint(5,10))
-            
-            # If no placement found, try exchange
-            if game.exchange and len(self.hand) > 0:
-                game.exchange_card(self, 0, 0)
-                return None, None
-        
-        # Draw if possible
-        if len(self.deck) > 0:
-            game.draw_card(self)
-            return None, None
-        
-        return None, None
+        """Choose the next action.
+        Returns one of:
+          ('place', card, position)
+          ('draw',)
+          ('exchange', hand_idx, exch_idx)
+          ('skip',)
+        Never calls game methods directly to avoid double turn-advance.
+        """
+        # Try to place a card (shuffle order to avoid always picking same card)
+        cards = list(self.hand)
+        random.shuffle(cards)
+        for card in cards:
+            position = self._find_valid_position(game, card)
+            if position is not None:
+                return ('place', card, position)
+
+        # Can't place: try exchange
+        if game.exchange and self.hand:
+            return ('exchange', 0, 0)
+
+        # Try to draw
+        if self.deck:
+            return ('draw',)
+
+        return ('skip',)
+
+    def _find_valid_position(self, game, card):
+        """Return the first valid board position for this card, or None."""
+        lieu = card.lieu.lower()
+        if 'cour' in lieu:
+            for y in range(4):
+                for x in range(4):
+                    if game.board.cour[y][x] is None:
+                        return (x, y)
+        elif 'tour' in lieu:
+            for (tx, ty), tile in game.board.tiles.items():
+                if tile['type'] == 'tour' and tile['card'] is None:
+                    return (tx, ty)
+        elif 'rempart' in lieu:
+            for (tx, ty), tile in game.board.tiles.items():
+                if tile['type'] == 'rempart' and tile['card'] is None:
+                    return (tx, ty)
+        elif card.couleur.lower() == 'violet':
+            # Chevalier: place on any occupied cour cell
+            for y in range(4):
+                for x in range(4):
+                    if game.board.cour[y][x] is not None:
+                        return (x, y)
+        else:
+            # Hors les murs: find a free exterior position
+            for ext_x in range(5, 20):
+                for ext_y in range(0, 5):
+                    if (ext_x, ext_y) not in game.board.exterieur:
+                        return (ext_x, ext_y)
+        return None
