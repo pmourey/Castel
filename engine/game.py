@@ -317,6 +317,48 @@ class GameState:
     # Pending-action helpers (called by renderer when player resolves)
     # ------------------------------------------------------------------
 
+    def resolve_pick_return(self, position):
+        """Called by renderer when player clicks a valid target for pick_return.
+        Removes the card at position and returns it to its owner (or exchange).
+        Returns True on success, False if position is invalid."""
+        from engine.effects import CardEffects
+        pa = self.pending_action
+        if not pa or pa.get('type') != 'pick_return':
+            return False
+        zone = pa['zone']
+        valid = pa.get('valid', [])
+        if position not in valid:
+            return False
+
+        card = None
+        if zone == 'cour':
+            cx, cy = position
+            card = self.board.cour[cy][cx]
+            if card is None:
+                return False
+            self.board.cour[cy][cx] = None
+        elif zone == 'ext':
+            card = self.board.exterieur.pop(position, None)
+            if card is None:
+                return False
+        elif zone == 'tile':
+            tile = self.board.tiles.get(position)
+            if not tile or not tile['card']:
+                return False
+            card = tile['card']
+            tile['card'] = None
+
+        CardEffects._return_card(self, card)
+
+        # Chain to next pick if defined (Dragon: ext → tile)
+        next_action = pa.get('next')
+        if next_action:
+            self.pending_action = next_action
+        else:
+            self.pending_action = None
+        return True
+
+
     def resolve_guetteur(self, from_pos, to_pos):
         """Move a soldier from from_pos to to_pos (both rempart tiles)."""
         from_tile = self.board.tiles.get(from_pos)

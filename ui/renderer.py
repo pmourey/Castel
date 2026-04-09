@@ -388,6 +388,8 @@ class CastelWindow:
             self._pending_conseiller_click(pos)
         elif t == 'prince_charmant':
             self._pending_prince_charmant(pos)
+        elif t == 'pick_return':
+            self._pending_pick_return_click(pos)
 
     # -- Guetteur --
 
@@ -506,6 +508,55 @@ class CastelWindow:
                             self.add_log(f"Tour J{self.game.current_player+1}")
                 else:
                     self.add_log("Prince charmant: case invalide (case libre dans la cour requise).")
+
+
+    # -- Pick return (Magicien, Roi, Reine, Traitre, Archer, Dragon) --
+
+    def _pending_pick_return_click(self, pos):
+        """Handle a click when pending_action is pick_return."""
+        pa = self.game.pending_action
+        x, y = pos
+        zone = pa.get('zone')
+
+        # Determine grid position depending on zone
+        if zone == 'cour':
+            grid = self._grid_from_px(x, y)
+            if grid is None:
+                return
+            gx, gy = grid
+            if not (0 <= gx < 4 and 0 <= gy < 4):
+                return
+            target_pos = (gx, gy)
+        elif zone == 'ext':
+            # Click on exterior/siege slot area
+            grid = self._grid_from_px(x, y)
+            if grid is None:
+                target_pos = self._ext_strip_pos_from_px(x, y) if self._in_ext_strip(x, y) else None
+            else:
+                target_pos = grid
+            if target_pos is None:
+                return
+        elif zone == 'tile':
+            grid = self._grid_from_px(x, y)
+            if grid is None:
+                return
+            target_pos = grid
+        else:
+            return
+
+        was_chained = pa.get('next') is not None
+        effect_name = pa.get('effect', '')
+        if self.game.resolve_pick_return(target_pos):
+            self.add_log(f"{effect_name}: carte en {target_pos} renvoyée")
+            # If no more pending action (chain done or single), advance turn
+            if self.game.pending_action is None:
+                if self.game.advance_turn_if_done():
+                    self.add_log(f"Tour J{self.game.current_player+1}")
+            else:
+                next_zone = self.game.pending_action.get('zone', '')
+                self.add_log(f"{effect_name}: choisissez maintenant une carte ({next_zone})")
+        else:
+            self.add_log(f"{effect_name}: cible invalide, choisissez parmi les cases surlignées")
 
 
     def _handle_button(self, name, player):
@@ -742,6 +793,29 @@ class CastelWindow:
                     for cx in range(4):
                         if (cx, cy) != src and self.game.board.cour[cy][cx] is None:
                             _hl_cour(cx, cy, HL_DST)
+
+        elif t == 'pick_return':
+            HL_TARGET = (230, 80, 50, 120)   # red-orange — card to remove
+            zone = pa.get('zone')
+            valid = pa.get('valid', [])
+            effect_name = pa.get('effect', '')
+            # Banner
+            zone_label = {'cour': 'la cour', 'ext': 'hors les murs', 'tile': 'une tour/rempart'}.get(zone, zone)
+            msg = f"{effect_name} — Cliquez sur une carte de {zone_label} pour la renvoyer"
+            surf = self.font.render(msg, True, (255, 160, 60))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            by = TOP_H + 6
+            bg = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg.fill((40, 10, 0, 210))
+            self.screen.blit(bg, (bx - 8, by - 3))
+            self.screen.blit(surf, (bx, by))
+            # Highlight valid targets
+            for pos in valid:
+                if zone == 'cour':
+                    cx, cy = pos
+                    _hl_cour(cx, cy, HL_TARGET)
+                else:
+                    _hl_tile(pos, HL_TARGET)
 
     def _draw_header(self):
         current = self.game.players[self.game.current_player]

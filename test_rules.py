@@ -126,19 +126,22 @@ class TestBleuEffects(unittest.TestCase):
 
     def test_magicien_removes_cour_card_to_exchange(self):
         game = make_game()
+        player = game.players[0]
+        player.is_human = False
         victim = make_card('Roi')
         place_in_cour(game, victim, 1, 1)
-        apply(game, 'Magicien', position=(-1, 0))
-        self.assertIn(victim, game.exchange)
+        apply(game, 'Magicien', player=player, position=(-1, 0))
+        # AI resolves immediately: victim returned to owner or exchange
         self.assertIsNone(game.board.cour[1][1])
 
     def test_archer_removes_exterior_card(self):
         game = make_game()
         player = game.players[0]
+        player.is_human = False
         ext_card = make_card('Barbare', 'Vert')
         ext_card.pion_owner = player
         place_in_ext(game, ext_card, (7, 0), owner=player)
-        apply(game, 'Archer', position=(-1, 1))
+        apply(game, 'Archer', player=player, position=(-1, 1))
         self.assertNotIn((7, 0), game.board.exterieur)
         self.assertIn(ext_card, player.hand)
 
@@ -183,10 +186,12 @@ class TestOrangeEffects(unittest.TestCase):
 
     def test_traitre_removes_cour_card(self):
         game = make_game()
+        player = game.players[0]
+        player.is_human = False
         victim = make_card('Roi')
         place_in_cour(game, victim, 2, 2)
         rempart_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart'][0]
-        apply(game, 'Traitre', position=rempart_pos)
+        apply(game, 'Traitre', player=player, position=rempart_pos)
         self.assertIsNone(game.board.cour[2][2])
 
     def test_soldat_fourth_triggers_engine_removal(self):
@@ -230,6 +235,7 @@ class TestRougeEffects(unittest.TestCase):
     def test_reine_removes_cour_card(self):
         game = make_game()
         player = game.players[0]
+        player.is_human = False
         victim = make_card('Courtisan')
         victim.pion_owner = player
         place_in_cour(game, victim, 2, 2)
@@ -482,12 +488,14 @@ class TestVertEffects(unittest.TestCase):
 
     def test_dragon_removes_exterior_and_tile_card(self):
         game = make_game()
+        player = game.players[0]
+        player.is_human = False
         ext_card = make_card('Barbare', 'Vert')
         tile_card = make_card('Soldat', 'Orange')
         place_in_ext(game, ext_card, (7, 0))
         tour_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'tour'][0]
         place_on_tile(game, tile_card, tour_pos)
-        apply(game, 'Dragon', position=(8, 0))
+        apply(game, 'Dragon', player=player, position=(8, 0))
         self.assertNotIn((7, 0), game.board.exterieur)
         self.assertIsNone(game.board.tiles[tour_pos]['card'])
 
@@ -837,17 +845,21 @@ class TestProtectedCards(unittest.TestCase):
 
     def test_traitre_skips_protected_card(self):
         game = make_game()
+        player = game.players[0]
+        player.is_human = False
         protected = make_card('Pretre')
         protected.protected = True
         place_in_cour(game, protected, 0, 0)
-        apply(game, 'Traitre')
+        apply(game, 'Traitre', player=player)
         self.assertIs(game.board.cour[0][0], protected, "Protected card must not be removed by Traitre")
 
     def test_traitre_removes_unprotected_card(self):
         game = make_game()
+        player = game.players[0]
+        player.is_human = False
         unprotected = make_card('Baladin')
         place_in_cour(game, unprotected, 2, 2)
-        apply(game, 'Traitre')
+        apply(game, 'Traitre', player=player)
         self.assertIsNone(game.board.cour[2][2], "Unprotected card should be removed by Traitre")
 
     def test_roi_skips_protected_card(self):
@@ -1083,6 +1095,259 @@ class TestPendingActions(unittest.TestCase):
         result = game.resolve_prince_charmant((2, 0), (3, 3))
         self.assertFalse(result)
         self.assertIs(game.board.cour[0][2], reine)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Return-to-owner rule & 4th siege engine captain handling
+# ---------------------------------------------------------------------------
+
+class TestReturnToOwner(unittest.TestCase):
+    """Cards returned from the board go to pion_owner's hand; no owner → exchange."""
+
+    def test_return_card_to_owner_hand(self):
+        from engine.effects import CardEffects
+        game = make_game()
+        player = game.players[0]
+        card = make_card('Roi')
+        card.pion_owner = player
+        before = len(player.hand)
+        CardEffects._return_card(game, card)
+        self.assertEqual(len(player.hand), before + 1)
+        self.assertIn(card, player.hand)
+        self.assertEqual(len(game.exchange), 0)
+
+    def test_return_card_no_owner_goes_to_exchange(self):
+        from engine.effects import CardEffects
+        game = make_game()
+        card = make_card('Roi')
+        # no pion_owner
+        CardEffects._return_card(game, card)
+        self.assertIn(card, game.exchange)
+
+    def test_return_card_stolen_always_exchange(self):
+        from engine.effects import CardEffects
+        game = make_game()
+        player = game.players[0]
+        card = make_card('Baladin')
+        card.pion_owner = player
+        card.stolen = True
+        CardEffects._return_card(game, card)
+        self.assertNotIn(card, player.hand)
+        self.assertIn(card, game.exchange)
+        self.assertFalse(card.stolen)
+
+    def test_traitre_returns_card_to_owner(self):
+        game = make_game()
+        player = game.players[0]
+        player.is_human = False
+        victim = make_card('Baladin')
+        victim.pion_owner = player
+        place_in_cour(game, victim, 1, 1)
+        apply(game, 'Traitre', player=player)
+        self.assertIsNone(game.board.cour[1][1])
+        self.assertIn(victim, player.hand)
+
+    def test_roi_returns_card_to_owner(self):
+        game = make_game()
+        p0, p1 = game.players[0], game.players[1]
+        p0.is_human = False
+        roi = make_card('Roi')
+        victim = make_card('Baladin')
+        victim.pion_owner = p1
+        place_in_cour(game, roi, 0, 0)
+        place_in_cour(game, victim, 2, 2)
+        CardEffects.roi_effect(game, p0, roi, (0, 0))
+        self.assertIsNone(game.board.cour[2][2])
+        self.assertIn(victim, p1.hand)
+
+    def test_magicien_returns_no_owner_to_exchange(self):
+        game = make_game()
+        player = game.players[0]
+        player.is_human = False
+        card = make_card('Courtisan')
+        # pion_owner is None
+        place_in_cour(game, card, 1, 1)
+        apply(game, 'Magicien', player=player)
+        self.assertIsNone(game.board.cour[1][1])
+        self.assertIn(card, game.exchange)
+
+    def test_archer_returns_ext_card_to_owner(self):
+        game = make_game()
+        player = game.players[0]
+        player.is_human = False
+        barbare = make_card('Barbare', 'Vert')
+        barbare.pion_owner = player
+        place_in_ext(game, barbare, (8, 0), owner=player)
+        apply(game, 'Archer', player=player)
+        self.assertIn(barbare, player.hand)
+
+
+class TestFourthEngineCapitaine(unittest.TestCase):
+    """4th siege engine: capitaine returned, protected soldiers stay."""
+
+    def _setup_four_engines(self, game):
+        for i, slot in enumerate([(-2, 0), (5, 0), (0, -2), (0, 5)]):
+            e = make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')
+            game.board.exterieur[slot] = e
+
+    def test_fourth_engine_returns_unprotected_soldier(self):
+        game = make_game()
+        player = game.players[0]
+        remparts = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart']
+        soldat = make_card('Soldat', 'Orange')
+        soldat.pion_owner = player
+        place_on_tile(game, soldat, remparts[0])
+        self._setup_four_engines(game)
+        engine = make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')
+        CardEffects.engin_siege_effect(game, player, engine, (-2, 0))
+        self.assertIsNone(game.board.tiles[remparts[0]]['card'])
+        self.assertIn(soldat, player.hand)
+
+    def test_fourth_engine_returns_capitaine_even_when_soldiers_protected(self):
+        game = make_game()
+        player = game.players[0]
+        remparts = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart']
+        cap = make_card('Capitaine', 'Orange')
+        cap.pion_owner = player
+        soldat = make_card('Soldat', 'Orange')
+        soldat.pion_owner = player
+        place_on_tile(game, cap, remparts[0])
+        place_on_tile(game, soldat, remparts[1])
+        # Capitaine protects the soldat
+        soldat.protected = True
+        self._setup_four_engines(game)
+        engine = make_card('Engin_de_siege', 'Vert', 'Arrive hors les murs')
+        CardEffects.engin_siege_effect(game, player, engine, (-2, 0))
+        # Captain must be returned
+        self.assertIsNone(game.board.tiles[remparts[0]]['card'])
+        self.assertIn(cap, player.hand)
+        # Protected soldier stays
+        self.assertIs(game.board.tiles[remparts[1]]['card'], soldat)
+        # But loses its protection flag
+        self.assertFalse(getattr(soldat, 'protected', False))
+
+
+# ---------------------------------------------------------------------------
+# Tests: pick_return interactive pending action
+# ---------------------------------------------------------------------------
+
+class TestPickReturn(unittest.TestCase):
+    """Human player gets pending_action type='pick_return'; resolve_pick_return works."""
+
+    def test_magicien_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        self.assertTrue(player.is_human)
+        card = make_card('Courtisan')
+        place_in_cour(game, card, 1, 1)
+        apply(game, 'Magicien', player=player)
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'pick_return')
+        self.assertEqual(game.pending_action['zone'], 'cour')
+
+    def test_roi_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        roi = make_card('Roi')
+        victim = make_card('Baladin')
+        place_in_cour(game, roi, 0, 0)
+        place_in_cour(game, victim, 2, 2)
+        CardEffects.roi_effect(game, player, roi, (0, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'pick_return')
+        self.assertIn((2, 2), game.pending_action['valid'])
+
+    def test_resolve_pick_return_cour(self):
+        game = make_game()
+        player = game.players[0]
+        victim = make_card('Baladin')
+        victim.pion_owner = player
+        place_in_cour(game, victim, 2, 2)
+        game.pending_action = {
+            'type': 'pick_return',
+            'effect': 'Roi',
+            'zone': 'cour',
+            'valid': [(2, 2)],
+            'player': player,
+            'next': None,
+        }
+        result = game.resolve_pick_return((2, 2))
+        self.assertTrue(result)
+        self.assertIsNone(game.board.cour[2][2])
+        self.assertIn(victim, player.hand)
+        self.assertIsNone(game.pending_action)
+
+    def test_resolve_pick_return_invalid_position(self):
+        game = make_game()
+        player = game.players[0]
+        victim = make_card('Baladin')
+        place_in_cour(game, victim, 2, 2)
+        game.pending_action = {
+            'type': 'pick_return',
+            'effect': 'Roi',
+            'zone': 'cour',
+            'valid': [(1, 1)],  # (2,2) not in valid
+            'player': player,
+            'next': None,
+        }
+        result = game.resolve_pick_return((2, 2))
+        self.assertFalse(result)
+        self.assertIsNotNone(game.pending_action)  # still pending
+
+    def test_archer_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        barbare = make_card('Barbare', 'Vert')
+        place_in_ext(game, barbare, (8, 0))
+        apply(game, 'Archer', player=player)
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['zone'], 'ext')
+        self.assertIn((8, 0), game.pending_action['valid'])
+
+    def test_resolve_pick_return_ext(self):
+        game = make_game()
+        player = game.players[0]
+        barbare = make_card('Barbare', 'Vert')
+        barbare.pion_owner = player
+        place_in_ext(game, barbare, (8, 0))
+        game.pending_action = {
+            'type': 'pick_return',
+            'effect': 'Archer',
+            'zone': 'ext',
+            'valid': [(8, 0)],
+            'player': player,
+            'next': None,
+        }
+        result = game.resolve_pick_return((8, 0))
+        self.assertTrue(result)
+        self.assertNotIn((8, 0), game.board.exterieur)
+        self.assertIn(barbare, player.hand)
+
+    def test_dragon_chains_ext_then_tile(self):
+        game = make_game()
+        player = game.players[0]
+        barbare = make_card('Barbare', 'Vert')
+        soldat = make_card('Soldat', 'Orange')
+        place_in_ext(game, barbare, (8, 0))
+        tour_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'tour'][0]
+        place_on_tile(game, soldat, tour_pos)
+        apply(game, 'Dragon', player=player, position=(8, 0))
+        # Step 1: ext selection
+        pa = game.pending_action
+        self.assertIsNotNone(pa)
+        self.assertEqual(pa['zone'], 'ext')
+        self.assertIsNotNone(pa.get('next'))
+        # Resolve step 1
+        game.resolve_pick_return((8, 0))
+        # Now pending_action should be for tile
+        pa2 = game.pending_action
+        self.assertIsNotNone(pa2)
+        self.assertEqual(pa2['zone'], 'tile')
+        # Resolve step 2
+        game.resolve_pick_return(tour_pos)
+        self.assertIsNone(game.pending_action)
+        self.assertNotIn((8, 0), game.board.exterieur)
+        self.assertIsNone(game.board.tiles[tour_pos]['card'])
 
 
 # ---------------------------------------------------------------------------

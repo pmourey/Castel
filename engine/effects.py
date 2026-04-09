@@ -63,12 +63,29 @@ class CardEffects:
 
     @staticmethod
     def _return_card(game, card):
-        """Return a card to its owner's hand, or to exchange if owner unknown."""
+        """Return a card to its owner's hand, or to exchange if owner unknown.
+        If the card was marked 'stolen' (pion removed by Voleur), it always goes to exchange."""
+        if getattr(card, 'stolen', False):
+            game.exchange.append(card)
+            card.stolen = False
+            return
         owner = getattr(card, 'pion_owner', None)
-        if owner:
+        if owner is not None:
             owner.hand.append(card)
         else:
             game.exchange.append(card)
+
+    @staticmethod
+    def _pending_pick_return(game, player, effect_name, zone, valid_positions, next_action=None):
+        """Set pending_action so the human player can interactively select a card to return."""
+        game.pending_action = {
+            'type': 'pick_return',
+            'effect': effect_name,
+            'zone': zone,          # 'cour' | 'ext' | 'tile'
+            'valid': valid_positions,
+            'player': player,
+            'next': next_action,   # chained pick_return dict for Dragon (2nd pick)
+        }
 
     # Bleu effects
     @staticmethod
@@ -118,20 +135,30 @@ class CardEffects:
             for cx in range(4):
                 c = game.board.cour[cy][cx]
                 if c and not getattr(c, 'protected', False):
-                    cards_on_board.append((c, cx, cy))
-        if cards_on_board:
-            card_to_move, cx, cy = random.choice(cards_on_board)
-            game.exchange.append(card_to_move)
+                    cards_on_board.append((cx, cy))
+        if not cards_on_board:
+            return
+        if not player.is_human:
+            cx, cy = random.choice(cards_on_board)
+            card_to_move = game.board.cour[cy][cx]
+            CardEffects._return_card(game, card_to_move)
             game.board.cour[cy][cx] = None
+            return
+        CardEffects._pending_pick_return(game, player, 'Magicien', 'cour', cards_on_board)
 
     @staticmethod
     def archer_effect(game, player, card, position):
         """L'archer renvoie une carte se trouvant hors les murs."""
-        if game.board.exterieur:
-            ext_pos = next(iter(game.board.exterieur))
+        ext_positions = list(game.board.exterieur.keys())
+        if not ext_positions:
+            return
+        if not player.is_human:
+            ext_pos = ext_positions[0]
             removed = game.board.exterieur.pop(ext_pos)
             if removed:
                 CardEffects._return_card(game, removed)
+            return
+        CardEffects._pending_pick_return(game, player, 'Archer', 'ext', ext_positions)
 
     @staticmethod
     def sorciere_effect(game, player, card, position):
@@ -166,17 +193,20 @@ class CardEffects:
     def traitre_effect(game, player, card, position):
         """Le traître renvoie une carte se trouvant sur une case de cour voisine."""
         x, y = position
-        candidates = []
-        for cx in range(4):
-            for cy in range(4):
-                c = game.board.cour[cy][cx]
-                if c is not None and not getattr(c, 'protected', False):
-                    candidates.append((cx, cy))
-        if candidates:
+        candidates = [
+            (cx, cy) for cx in range(4) for cy in range(4)
+            if game.board.cour[cy][cx] is not None
+            and not getattr(game.board.cour[cy][cx], 'protected', False)
+        ]
+        if not candidates:
+            return
+        if not player.is_human:
             cx, cy = random.choice(candidates)
             removed = game.board.cour[cy][cx]
             CardEffects._return_card(game, removed)
             game.board.cour[cy][cx] = None
+            return
+        CardEffects._pending_pick_return(game, player, 'Traitre', 'cour', candidates)
 
     @staticmethod
     def soldat_effect(game, player, card, position):
@@ -207,11 +237,15 @@ class CardEffects:
             if game.board.cour[cy][cx] and game.board.cour[cy][cx] is not card
             and not getattr(game.board.cour[cy][cx], 'protected', False)
         ]
-        if cards_on_board:
+        if not cards_on_board:
+            return
+        if not player.is_human:
             cx, cy = random.choice(cards_on_board)
             removed = game.board.cour[cy][cx]
             CardEffects._return_card(game, removed)
             game.board.cour[cy][cx] = None
+            return
+        CardEffects._pending_pick_return(game, player, 'Roi', 'cour', cards_on_board)
     
     @staticmethod
     def baladin_effect(game, player, card, position):
@@ -251,20 +285,24 @@ class CardEffects:
             if game.board.cour[cy][cx] and game.board.cour[cy][cx] is not card
             and not getattr(game.board.cour[cy][cx], 'protected', False)
         ]
-        if cards_on_board:
+        if not cards_on_board:
+            return
+        if not player.is_human:
             cx, cy = random.choice(cards_on_board)
             removed = game.board.cour[cy][cx]
             CardEffects._return_card(game, removed)
             game.board.cour[cy][cx] = None
+            return
+        CardEffects._pending_pick_return(game, player, 'Reine', 'cour', cards_on_board)
     
     @staticmethod
     def princesse_effect(game, player, card, position):
         """La princesse déplace un chevalier."""
-        # Find and remove a knight
         for cy in range(4):
             for cx in range(4):
-                if game.board.cour[cy][cx] and "Chevalier" in game.board.cour[cy][cx].nom:
-                    game.exchange.append(game.board.cour[cy][cx])
+                c = game.board.cour[cy][cx]
+                if c and "Chevalier" in c.nom:
+                    CardEffects._return_card(game, c)
                     game.board.cour[cy][cx] = None
                     return
     
@@ -375,7 +413,7 @@ class CardEffects:
             nx = x + dx
             if 0 <= nx < 4 and game.board.cour[y][nx]:
                 if any(m in game.board.cour[y][nx].nom for m in male_cards):
-                    game.exchange.append(game.board.cour[y][nx])
+                    CardEffects._return_card(game, game.board.cour[y][nx])
                     game.board.cour[y][nx] = None
                     return
     
@@ -387,7 +425,7 @@ class CardEffects:
             nx = x + dx
             if 0 <= nx < 4 and game.board.cour[y][nx]:
                 if not getattr(game.board.cour[y][nx], 'protected', False):
-                    game.exchange.append(game.board.cour[y][nx])
+                    CardEffects._return_card(game, game.board.cour[y][nx])
                     game.board.cour[y][nx] = None
                     return
     
@@ -529,33 +567,63 @@ class CardEffects:
 
     @staticmethod
     def engin_siege_effect(game, player, card, position):
-        """Le quatrième engin de siège renvoie tous les soldats se trouvant sur les remparts."""
+        """Le quatrième engin de siège renvoie tous les soldats se trouvant sur les remparts.
+        Les soldats protégés par un capitaine restent en place, mais le capitaine est renvoyé.
+        Le capitaine ne se protège pas lui-même."""
         engine_count = sum(
             1 for ext_card in game.board.exterieur.values()
             if ext_card and 'Engin' in ext_card.nom
         )
-        if engine_count >= 4:
-            for (tx, ty), tile in list(game.board.tiles.items()):
-                if tile['type'] == 'rempart' and tile['card']:
-                    if not getattr(tile['card'], 'protected', False):
-                        CardEffects._return_card(game, tile['card'])
-                        tile['card'] = None
+        if engine_count < 4:
+            return
+        # Return captains first (they do not protect themselves)
+        for (tx, ty), tile in list(game.board.tiles.items()):
+            if tile['type'] == 'rempart' and tile['card'] and 'Capitaine' in tile['card'].nom:
+                CardEffects._return_card(game, tile['card'])
+                tile['card'] = None
+        # Return unprotected soldiers; protected ones stay but lose protection (captain gone)
+        for (tx, ty), tile in list(game.board.tiles.items()):
+            if tile['type'] == 'rempart' and tile['card']:
+                if getattr(tile['card'], 'protected', False):
+                    tile['card'].protected = False   # captain gone, protection lifted for future
+                else:
+                    CardEffects._return_card(game, tile['card'])
+                    tile['card'] = None
 
     @staticmethod
     def dragon_effect(game, player, card, position):
         """Le dragon renvoie une carte hors les murs et une carte dans une tour ou rempart."""
-        if game.board.exterieur:
-            ext_pos = next(iter(game.board.exterieur))
-            removed = game.board.exterieur.pop(ext_pos)
-            if removed:
-                CardEffects._return_card(game, removed)
+        ext_positions = list(game.board.exterieur.keys())
+        tile_positions = [pos for pos, tile in game.board.tiles.items() if tile['card']]
 
-        occupied_tiles = [(pos, tile) for pos, tile in game.board.tiles.items() if tile['card']]
-        if occupied_tiles:
-            pos, tile = random.choice(occupied_tiles)
-            removed = tile['card']
-            tile['card'] = None
-            CardEffects._return_card(game, removed)
+        if not player.is_human:
+            if ext_positions:
+                ext_pos = ext_positions[0]
+                removed = game.board.exterieur.pop(ext_pos)
+                if removed:
+                    CardEffects._return_card(game, removed)
+            if tile_positions:
+                pos = random.choice(tile_positions)
+                removed = game.board.tiles[pos]['card']
+                game.board.tiles[pos]['card'] = None
+                CardEffects._return_card(game, removed)
+            return
+
+        # Human: chain two interactive picks (ext first, then tile)
+        next_action = None
+        if tile_positions:
+            next_action = {
+                'type': 'pick_return',
+                'effect': 'Dragon',
+                'zone': 'tile',
+                'valid': tile_positions,
+                'player': player,
+                'next': None,
+            }
+        if ext_positions:
+            CardEffects._pending_pick_return(game, player, 'Dragon', 'ext', ext_positions, next_action=next_action)
+        elif next_action:
+            game.pending_action = next_action
 
 
 
