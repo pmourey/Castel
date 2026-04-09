@@ -1035,6 +1035,7 @@ class CastelWindow:
             for (cx, cy) in pa.get('valid', []):
                 _hl_cour(cx, cy, (200, 160, 40, 130))
 
+    def _draw_header(self):
         current = self.game.players[self.game.current_player]
         who   = "HUMAIN" if current.is_human else f"IA {self.game.current_player+1}"
         color = (80, 220, 80) if current.is_human else (220, 100, 100)

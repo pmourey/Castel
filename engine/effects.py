@@ -76,6 +76,20 @@ class CardEffects:
             game.exchange.append(card)
 
     @staticmethod
+    def _neighbors_cour(position):
+        """Return all valid 8-directional (including diagonal) neighbor positions within the 4x4 cour grid."""
+        x, y = position
+        neighbors = []
+        for dy in [-1, 0, 1]:
+            for dx in [-1, 0, 1]:
+                if dx == 0 and dy == 0:
+                    continue
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < 4 and 0 <= ny < 4:
+                    neighbors.append((nx, ny))
+        return neighbors
+
+    @staticmethod
     def _pending_pick_return(game, player, effect_name, zone, valid_positions, next_action=None):
         """Set pending_action so the human player can interactively select a card to return."""
         game.pending_action = {
@@ -249,18 +263,11 @@ class CardEffects:
     
     @staticmethod
     def baladin_effect(game, player, card, position):
-        """Le baladin intervertit les cartes se trouvant sur des cases de cour voisines."""
-        x, y = position
-        adjacent_cards = []
-        for dx in [-1, 1]:
-            nx = x + dx
-            if 0 <= nx < 4 and game.board.cour[y][nx]:
-                adjacent_cards.append((nx, y))
-        for dy in [-1, 1]:
-            ny = y + dy
-            if 0 <= ny < 4 and game.board.cour[ny][x]:
-                adjacent_cards.append((x, ny))
-        
+        """Le baladin intervertit les cartes se trouvant sur des cases de cour voisines (8 directions)."""
+        adjacent_cards = [
+            (nx, ny) for nx, ny in CardEffects._neighbors_cour(position)
+            if game.board.cour[ny][nx]
+        ]
         if len(adjacent_cards) >= 2:
             x1, y1 = adjacent_cards[0]
             x2, y2 = adjacent_cards[1]
@@ -313,7 +320,6 @@ class CardEffects:
         card.king_substitute = True
     
     @staticmethod
-    @staticmethod
     def intrigant_effect(game, player, card, position):
         """L'intrigant échange les pions (positions) de deux autres cartes."""
         cards_on_board = []
@@ -340,18 +346,11 @@ class CardEffects:
     
     @staticmethod
     def espion_effect(game, player, card, position):
-        """L'espion permute les pions des cartes situées sur les cases voisines."""
-        x, y = position
-        adjacent_positions = []
-        for dx in [-1, 1]:
-            nx = x + dx
-            if 0 <= nx < 4 and game.board.cour[y][nx]:
-                adjacent_positions.append((nx, y))
-        for dy in [-1, 1]:
-            ny = y + dy
-            if 0 <= ny < 4 and game.board.cour[ny][x]:
-                adjacent_positions.append((x, ny))
-        
+        """L'espion permute les pions des cartes situées sur les cases voisines (8 directions)."""
+        adjacent_positions = [
+            (nx, ny) for nx, ny in CardEffects._neighbors_cour(position)
+            if game.board.cour[ny][nx]
+        ]
         if len(adjacent_positions) >= 2:
             x1, y1 = adjacent_positions[0]
             x2, y2 = adjacent_positions[1]
@@ -364,21 +363,13 @@ class CardEffects:
     
     @staticmethod
     def voleur_effect(game, player, card, position):
-        """Le voleur retire le pion d'une carte voisine non protégée. Si elle est renvoyée, elle va à l'échange."""
-        x, y = position
-        valid = []
-        for dx in [-1, 1]:
-            nx = x + dx
-            if 0 <= nx < 4 and game.board.cour[y][nx]:
-                neighbor = game.board.cour[y][nx]
-                if getattr(neighbor, 'pion_owner', None) and not getattr(neighbor, 'protected', False):
-                    valid.append((nx, y))
-        for dy in [-1, 1]:
-            ny = y + dy
-            if 0 <= ny < 4 and game.board.cour[ny][x]:
-                neighbor = game.board.cour[ny][x]
-                if getattr(neighbor, 'pion_owner', None) and not getattr(neighbor, 'protected', False):
-                    valid.append((x, ny))
+        """Le voleur retire le pion d'une carte voisine (8 directions) non protégée."""
+        valid = [
+            (nx, ny) for nx, ny in CardEffects._neighbors_cour(position)
+            if game.board.cour[ny][nx]
+            and getattr(game.board.cour[ny][nx], 'pion_owner', None)
+            and not getattr(game.board.cour[ny][nx], 'protected', False)
+        ]
         if not valid:
             return
         if not player.is_human:
@@ -387,7 +378,6 @@ class CardEffects:
             target.pion_owner = None
             target.stolen = True
             return
-        # Human: select which neighbor to steal pion from
         game.pending_action = {
             'type': 'voleur',
             'player': player,
@@ -426,51 +416,40 @@ class CardEffects:
     
     @staticmethod
     def pretre_effect(game, player, card, position):
-        """Le prêtre protège les cartes voisines appartenant au même joueur (même pion_owner)."""
-        x, y = position
-        for dx in [-1, 1]:
-            nx = x + dx
-            if 0 <= nx < 4:
-                neighbor = game.board.cour[y][nx]
-                if neighbor and getattr(neighbor, 'pion_owner', None) is player:
-                    neighbor.protected = True
-                    neighbor.protected_by = card
-        for dy in [-1, 1]:
-            ny = y + dy
-            if 0 <= ny < 4:
-                neighbor = game.board.cour[ny][x]
-                if neighbor and getattr(neighbor, 'pion_owner', None) is player:
-                    neighbor.protected = True
-                    neighbor.protected_by = card
-    
+        """Le prêtre protège les cartes voisines (8 directions) appartenant au même joueur."""
+        for nx, ny in CardEffects._neighbors_cour(position):
+            neighbor = game.board.cour[ny][nx]
+            if neighbor and getattr(neighbor, 'pion_owner', None) is player:
+                neighbor.protected = True
+                neighbor.protected_by = card
+
     @staticmethod
     def dame_compagnie_effect(game, player, card, position):
-        """La dame de compagnie renvoie de la cour un personnage masculin voisin."""
-        x, y = position
+        """La dame de compagnie renvoie de la cour un personnage masculin voisin (8 directions)."""
         male_cards = ["Roi", "Prince", "Chevalier"]
-        for dx in [-1, 1]:
-            nx = x + dx
-            if 0 <= nx < 4 and game.board.cour[y][nx]:
-                if any(m in game.board.cour[y][nx].nom for m in male_cards):
-                    CardEffects._return_card(game, game.board.cour[y][nx])
-                    game.board.cour[y][nx] = None
-                    return
-    
+        valid = [
+            (nx, ny) for nx, ny in CardEffects._neighbors_cour(position)
+            if game.board.cour[ny][nx]
+            and any(m in game.board.cour[ny][nx].nom for m in male_cards)
+            and not getattr(game.board.cour[ny][nx], 'protected', False)
+        ]
+        if not valid:
+            return
+        if not player.is_human:
+            cx2, cy2 = valid[0]
+            CardEffects._return_card(game, game.board.cour[cy2][cx2])
+            game.board.cour[cy2][cx2] = None
+            return
+        CardEffects._pending_pick_return(game, player, 'Dame_de_compagnie', 'cour', valid)
+
     @staticmethod
     def courtisan_effect(game, player, card, position):
-        """Le courtisan renvoie du château une carte se trouvant sur une case voisine."""
-        x, y = position
-        valid = []
-        for dx in [-1, 1]:
-            nx = x + dx
-            if 0 <= nx < 4 and game.board.cour[y][nx]:
-                if not getattr(game.board.cour[y][nx], 'protected', False):
-                    valid.append((nx, y))
-        for dy in [-1, 1]:
-            ny = y + dy
-            if 0 <= ny < 4 and game.board.cour[ny][x]:
-                if not getattr(game.board.cour[ny][x], 'protected', False):
-                    valid.append((x, ny))
+        """Le courtisan renvoie du château une carte se trouvant sur une case voisine (8 directions)."""
+        valid = [
+            (nx, ny) for nx, ny in CardEffects._neighbors_cour(position)
+            if game.board.cour[ny][nx]
+            and not getattr(game.board.cour[ny][nx], 'protected', False)
+        ]
         if not valid:
             return
         if not player.is_human:
@@ -479,31 +458,22 @@ class CardEffects:
             game.board.cour[cy2][cx2] = None
             return
         CardEffects._pending_pick_return(game, player, 'Courtisan', 'cour', valid)
-    
+
     @staticmethod
     def assassin_effect(game, player, card, position):
-        """L'assassin retire définitivement du jeu n'importe quelle carte (sauf le roi) voisine."""
-        x, y = position
-        valid = []
-        for dx in [-1, 1]:
-            nx = x + dx
-            if 0 <= nx < 4 and game.board.cour[y][nx]:
-                target = game.board.cour[y][nx]
-                if "Roi" not in target.nom and not getattr(target, 'protected', False):
-                    valid.append((nx, y))
-        for dy in [-1, 1]:
-            ny = y + dy
-            if 0 <= ny < 4 and game.board.cour[ny][x]:
-                target = game.board.cour[ny][x]
-                if "Roi" not in target.nom and not getattr(target, 'protected', False):
-                    valid.append((x, ny))
+        """L'assassin retire définitivement du jeu n'importe quelle carte (sauf le roi) voisine (8 directions)."""
+        valid = [
+            (nx, ny) for nx, ny in CardEffects._neighbors_cour(position)
+            if game.board.cour[ny][nx]
+            and "Roi" not in game.board.cour[ny][nx].nom
+            and not getattr(game.board.cour[ny][nx], 'protected', False)
+        ]
         if not valid:
             return
         if not player.is_human:
             cx2, cy2 = valid[0]
-            game.board.cour[cy2][cx2] = None  # permanently remove
+            game.board.cour[cy2][cx2] = None
             return
-        # Human: select target to permanently eliminate
         game.pending_action = {
             'type': 'assassin',
             'player': player,
@@ -516,8 +486,11 @@ class CardEffects:
         if not game.exchange:
             return
         if not player.is_human:
-            # AI: take first exchange card and put in first free cour cell
+            # AI: take first exchange card and put in first free cour cell with pion
             card_from_exchange = game.exchange.pop(0)
+            card_from_exchange.pion_owner = player
+            if player.pions_remaining > 0:
+                player.pions_remaining -= 1
             for cy in range(4):
                 for cx in range(4):
                     if game.board.cour[cy][cx] is None:
@@ -527,7 +500,7 @@ class CardEffects:
         # Human: request interactive selection
         game.pending_action = {
             'type': 'conseiller',
-            'step': 1,   # step 1 = pick exchange card; step 2 = pick board position
+            'step': 1,
             'player': player,
             'exchange_idx': None,
             'dragging_card': None,
@@ -601,19 +574,13 @@ class CardEffects:
     
     @staticmethod
     def chevalier_noir_effect(game, player, card, position):
-        """Le chevalier noir renvoie un chevalier se trouvant sur une case voisine."""
-        x, y = position
-        valid = []
-        for dx in [-1, 1]:
-            nx = x + dx
-            if 0 <= nx < 4 and game.board.cour[y][nx]:
-                if "Chevalier" in game.board.cour[y][nx].nom and not getattr(game.board.cour[y][nx], 'protected', False):
-                    valid.append((nx, y))
-        for dy in [-1, 1]:
-            ny = y + dy
-            if 0 <= ny < 4 and game.board.cour[ny][x]:
-                if "Chevalier" in game.board.cour[ny][x].nom and not getattr(game.board.cour[ny][x], 'protected', False):
-                    valid.append((x, ny))
+        """Le chevalier noir renvoie un chevalier voisin (8 directions)."""
+        valid = [
+            (nx, ny) for nx, ny in CardEffects._neighbors_cour(position)
+            if game.board.cour[ny][nx]
+            and "Chevalier" in game.board.cour[ny][nx].nom
+            and not getattr(game.board.cour[ny][nx], 'protected', False)
+        ]
         if not valid:
             return
         if not player.is_human:

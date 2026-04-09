@@ -455,10 +455,20 @@ class TestRougeEffects(unittest.TestCase):
 
     def test_dame_compagnie_removes_male_neighbor(self):
         game = make_game()
+        game.players[0].is_human = False
         roi = make_card('Roi')
         place_in_cour(game, roi, 1, 0)
         CardEffects.dame_compagnie_effect(game, game.players[0], make_card('Dame_de_compagnie'), (0, 0))
         self.assertIsNone(game.board.cour[0][1])
+
+    def test_dame_compagnie_sets_pending_for_human(self):
+        game = make_game()
+        game.players[0].is_human = True
+        roi = make_card('Roi')
+        place_in_cour(game, roi, 1, 0)
+        CardEffects.dame_compagnie_effect(game, game.players[0], make_card('Dame_de_compagnie'), (0, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'pick_return')
 
     def test_prince_charmant_removes_female(self):
         game = make_game()
