@@ -574,11 +574,22 @@ class TestCanPlaceCard(unittest.TestCase):
         card = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
         self.assertFalse(game.can_place_card(card, (0, 0)))  # empty cell
 
-    def test_chevalier_rejected_on_rempart(self):
+    def test_chevalier_allowed_on_occupied_rempart_tile(self):
         game = make_game()
         card = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        # Place a base card on a rempart tile
         rempart_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart'][0]
-        self.assertFalse(game.can_place_card(card, rempart_pos))
+        base = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
+        place_on_tile(game, base, rempart_pos)
+        self.assertTrue(game.can_place_card(card, rempart_pos))
+        # Place chevalier on tile (must be in player's hand)
+        game.players[0].hand.append(card)
+        self.assertTrue(game.place_card(game.players[0], card, rempart_pos))
+        # Now another chevalier should be allowed on same tile
+        card2 = make_card('Chevalier', 'Violet', 'Arrive sur une autre carte')
+        self.assertTrue(game.can_place_card(card2, rempart_pos))
+        game.players[0].hand.append(card2)
+        self.assertTrue(game.place_card(game.players[0], card2, rempart_pos))
 
     def test_engin_siege_only_one_per_rempart_face(self):
         """Two engins de siege cannot face the same rempart."""

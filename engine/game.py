@@ -126,11 +126,16 @@ class GameState:
         zone = self._get_zone_at_position(position)
         lieu = getattr(card, 'lieu', '').lower()
 
+        # Global: Chevalier can be placed on top of an existing card anywhere
+        if 'sur une autre carte' in lieu:
+            x, y = position
+            if 0 <= x < 4 and 0 <= y < 4:
+                return self.board.cour[y][x] is not None
+            if (x, y) in self.board.tiles:
+                return self.board.tiles[(x, y)].get('card') is not None
+            return False
+
         if zone == 'cour':
-            # Chevalier (violet) goes on top of an existing card
-            if 'sur une autre carte' in lieu:
-                x, y = position
-                return 0 <= x < 4 and 0 <= y < 4 and self.board.cour[y][x] is not None
             return 'cour' in lieu
         if zone == 'tour':
             return 'tour' in lieu
@@ -252,11 +257,14 @@ class GameState:
         lieu_card = getattr(card, 'lieu', '').lower()
         if 'sur une autre carte' in lieu_card:
             cx, cy = position
+            existing = None
             if 0 <= cx < 4 and 0 <= cy < 4:
                 existing = self.board.cour[cy][cx]
-                if existing:
-                    card.protects = existing
-                    existing.protected = True
+            elif (cx, cy) in self.board.tiles:
+                existing = self.board.tiles[(cx, cy)].get('card')
+            if existing:
+                card.protects = existing
+                existing.protected = True
 
         # Track card ownership for pion rules
         card.pion_owner = player
