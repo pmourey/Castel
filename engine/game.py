@@ -142,7 +142,17 @@ class GameState:
         if zone == 'cour':
             return 'cour' in lieu
         if zone == 'tour':
-            return 'tour' in lieu
+            if 'tour' not in lieu:
+                return False
+            x, y = position
+            tile = self.board.tiles.get((x, y))
+            if not tile:
+                return False
+            existing = tile.get('card')
+            # Fantome requires an occupied tower; all other blue cards require empty tower
+            if 'occupée' in lieu:
+                return existing is not None
+            return existing is None
         if zone == 'rempart':
             return 'rempart' in lieu
         if zone == 'exterieur':

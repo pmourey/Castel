@@ -1,4 +1,5 @@
 import pygame
+import random
 
 # ============================================================================
 # FIXED LAYOUT CONSTANTS  (never change with window size)
@@ -400,6 +401,16 @@ class CastelWindow:
             self._pending_favorite(pos)
         elif t == 'voleur':
             self._pending_voleur(pos)
+        elif t == 'espion':
+            self._pending_espion(pos)
+        elif t == 'courtisane':
+            self._pending_courtisane(pos)
+        elif t == 'alchimiste':
+            self._pending_alchimiste(pos)
+        elif t == 'magicien':
+            self._pending_magicien(pos)
+        elif t == 'chevalier_noir':
+            self._pending_chevalier_noir(pos)
 
     # -- Guetteur --
 
@@ -719,6 +730,217 @@ class CastelWindow:
                 self.add_log(f"Tour J{self.game.current_player+1}")
         else:
             self.add_log("Voleur: sélectionnez un voisin avec un pion.")
+
+    # -- Espion (swap pion_owner of 2 chosen neighbors) --
+
+    def _pending_espion(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+        if pa['step'] == 1:
+            if (gx, gy) in pa['valid']:
+                pa['first_pos'] = (gx, gy)
+                pa['step'] = 2
+                name = self.game.board.cour[gy][gx].nom
+                self.add_log(f"Espion: {name} sélectionné. Choisissez la 2ème carte.")
+            else:
+                self.add_log("Espion: sélectionnez un voisin avec un pion.")
+        elif pa['step'] == 2:
+            first = pa['first_pos']
+            if (gx, gy) in pa['valid'] and (gx, gy) != first:
+                x1, y1 = first
+                x2, y2 = gx, gy
+                c1 = self.game.board.cour[y1][x1]
+                c2 = self.game.board.cour[y2][x2]
+                p1 = getattr(c1, 'pion_owner', None)
+                p2 = getattr(c2, 'pion_owner', None)
+                c1.pion_owner = p2
+                c2.pion_owner = p1
+                self.game.pending_action = None
+                self.add_log(f"Espion: pions permutés entre {first} et {(gx, gy)}")
+                if self.game.advance_turn_if_done():
+                    self.add_log(f"Tour J{self.game.current_player+1}")
+            else:
+                self.add_log("Espion: sélectionnez une 2ème carte différente.")
+
+    # -- Courtisane (pick hand card + pick player) --
+
+    def _pending_courtisane(self, pos):
+        pa = self.game.pending_action
+        player = pa['player']
+        x, y = pos
+        if pa['step'] == 1:
+            # Detect click on a hand card
+            idx = self._hand_idx_at(x, y, player)
+            if idx is not None and 0 <= idx < len(player.hand):
+                pa['hand_card_idx'] = idx
+                pa['step'] = 2
+                name = player.hand[idx].nom
+                self.add_log(f"Courtisane: {name} sélectionnée. Choisissez le joueur.")
+            else:
+                self.add_log("Courtisane: cliquez sur une carte de votre main.")
+        elif pa['step'] == 2:
+            others = pa['other_players']
+            if len(others) == 1:
+                chosen = others[0]
+            else:
+                # Check player button rects
+                chosen = None
+                rects = getattr(self, '_courtisane_player_rects', {})
+                for i, rect in rects.items():
+                    if rect.collidepoint(x, y) and i < len(others):
+                        chosen = others[i]
+                        break
+                if chosen is None:
+                    self.add_log("Courtisane: cliquez sur un joueur.")
+                    return
+            # Execute exchange
+            idx = pa['hand_card_idx']
+            if idx is not None and 0 <= idx < len(player.hand) and chosen.hand:
+                card_given = player.hand.pop(idx)
+                card_received = random.choice(chosen.hand)
+                chosen.hand.remove(card_received)
+                player.hand.append(card_received)
+                chosen.hand.append(card_given)
+                self.game.pending_action = None
+                self.add_log(f"Courtisane: échange effectué avec J{self.game.players.index(chosen)+1}")
+                if self.game.advance_turn_if_done():
+                    self.add_log(f"Tour J{self.game.current_player+1}")
+            else:
+                self.add_log("Courtisane: impossible d'effectuer l'échange.")
+
+    # -- Alchimiste (pick 2 hand cards to exchange) --
+
+    def _pending_alchimiste(self, pos):
+        pa = self.game.pending_action
+        player = pa['player']
+        x, y = pos
+        idx = self._hand_idx_at(x, y, player)
+        if idx is None or not (0 <= idx < len(player.hand)):
+            self.add_log("Alchimiste: cliquez sur une carte de votre main.")
+            return
+        sel = pa['selected_indices']
+        if idx in sel:
+            self.add_log("Alchimiste: cette carte est déjà sélectionnée.")
+            return
+        sel.append(idx)
+        name = player.hand[idx].nom
+        if pa['step'] == 1:
+            pa['step'] = 2
+            self.add_log(f"Alchimiste: {name} sélectionnée. Choisissez la 2ème carte.")
+        else:
+            # Execute: remove both selected cards from hand, add 2 from exchange
+            # Remove in reverse order to preserve indices
+            indices = sorted(sel, reverse=True)
+            given = [player.hand.pop(i) for i in indices]
+            received = []
+            for _ in range(len(given)):
+                if self.game.exchange:
+                    received.append(self.game.exchange.pop(0))
+            player.hand.extend(received)
+            self.game.exchange.extend(given)
+            self.game.pending_action = None
+            names_given = ", ".join(c.nom for c in given)
+            names_recv = ", ".join(c.nom for c in received) if received else "(aucune)"
+            self.add_log(f"Alchimiste: {names_given} → échange → {names_recv}")
+            if self.game.advance_turn_if_done():
+                self.add_log(f"Tour J{self.game.current_player+1}")
+
+    # -- Magicien (return any card to exchange) --
+
+    def _pending_magicien(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            # Check ext strip
+            if self._in_ext_strip(x, y):
+                ext_pos = self._ext_strip_pos_from_px(x, y)
+                if ext_pos and ext_pos in pa.get('valid_ext', []):
+                    c = self.game.board.exterieur.pop(ext_pos, None)
+                    if c:
+                        self.game.exchange.append(c)
+                        self.game.pending_action = None
+                        self.add_log(f"Magicien: {c.nom} renvoyé à l'échange")
+                        if self.game.advance_turn_if_done():
+                            self.add_log(f"Tour J{self.game.current_player+1}")
+            return
+        gx, gy = grid
+        pos_clicked = (gx, gy)
+        # Check cour
+        if pos_clicked in pa.get('valid_cour', []):
+            from engine.effects import CardEffects
+            c = self.game.board.cour[gy][gx]
+            if c:
+                protected = getattr(c, 'protects', None)
+                if protected:
+                    self.game.board.cour[gy][gx] = protected
+                    protected.protected = False
+                    protected.protected_by = None
+                    c.protects = None
+                else:
+                    self.game.board.cour[gy][gx] = None
+                self.game.exchange.append(c)
+                self.game.pending_action = None
+                self.add_log(f"Magicien: {c.nom} renvoyé à l'échange")
+                if self.game.advance_turn_if_done():
+                    self.add_log(f"Tour J{self.game.current_player+1}")
+        # Check tiles
+        elif pos_clicked in pa.get('valid_tiles', []):
+            from engine.effects import CardEffects
+            tile = self.game.board.tiles.get(pos_clicked)
+            if tile:
+                c = tile.get('card')
+                if c:
+                    protected = getattr(c, 'protects', None)
+                    if protected:
+                        tile['card'] = protected
+                        protected.protected = False
+                        protected.protected_by = None
+                        c.protects = None
+                    else:
+                        tile['card'] = None
+                    self.game.exchange.append(c)
+                    self.game.pending_action = None
+                    self.add_log(f"Magicien: {c.nom} renvoyé à l'échange")
+                    if self.game.advance_turn_if_done():
+                        self.add_log(f"Tour J{self.game.current_player+1}")
+        else:
+            self.add_log("Magicien: sélectionnez n'importe quelle carte du plateau.")
+
+    # -- Chevalier noir (pick Chevalier from cour or tile) --
+
+    def _pending_chevalier_noir(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+        pos_clicked = (gx, gy)
+        from engine.effects import CardEffects
+        if pos_clicked in pa.get('valid_cour', []):
+            c = self.game.board.cour[gy][gx]
+            name = c.nom if c else str(pos_clicked)
+            CardEffects._remove_cour_card(self.game, gx, gy)
+            self.game.pending_action = None
+            self.add_log(f"Chevalier noir: {name} renvoyé")
+            if self.game.advance_turn_if_done():
+                self.add_log(f"Tour J{self.game.current_player+1}")
+        elif pos_clicked in pa.get('valid_tiles', []):
+            tile = self.game.board.tiles.get(pos_clicked)
+            c = tile.get('card') if tile else None
+            name = c.nom if c else str(pos_clicked)
+            CardEffects._remove_tile_card(self.game, pos_clicked)
+            self.game.pending_action = None
+            self.add_log(f"Chevalier noir: {name} renvoyé")
+            if self.game.advance_turn_if_done():
+                self.add_log(f"Tour J{self.game.current_player+1}")
+        else:
+            self.add_log("Chevalier noir: sélectionnez un Chevalier voisin surligné.")
 
     def _handle_button(self, name, player):
         if name == "draw":
@@ -1046,6 +1268,95 @@ class CastelWindow:
             self.screen.blit(surf, (bx, TOP_H + 6))
             for (cx, cy) in pa.get('valid', []):
                 _hl_cour(cx, cy, (200, 160, 40, 130))
+
+        elif t == 'espion':
+            step = pa.get('step', 1)
+            msg_e = ("Espion — Cliquez sur la 1ère carte à permuter" if step == 1
+                     else "Espion — Cliquez sur la 2ème carte à permuter")
+            surf = self.font.render(msg_e, True, (200, 200, 255))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((20, 20, 50, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            first = pa.get('first_pos')
+            for (cx, cy) in pa.get('valid', []):
+                color = HL_SRC if (first and (cx, cy) == first) else (140, 140, 230, 120)
+                _hl_cour(cx, cy, color)
+
+        elif t == 'courtisane':
+            step = pa.get('step', 1)
+            if step == 1:
+                msg_c = "Courtisane — Cliquez sur une carte de votre main à donner"
+            else:
+                msg_c = "Courtisane — Cliquez sur un joueur pour échanger"
+            surf = self.font.render(msg_c, True, (255, 180, 200))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((40, 10, 20, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            # Step 2: draw player selection buttons over the castle area
+            if step == 2:
+                others = pa.get('other_players', [])
+                btn_w, btn_h = 160, 34
+                bx0 = self.castle_x + (self.castle_w - len(others) * (btn_w + 8)) // 2
+                by0 = self.castle_origin_y + 2 * self.cell
+                for i, op in enumerate(others):
+                    br = pygame.Rect(bx0 + i * (btn_w + 8), by0, btn_w, btn_h)
+                    pygame.draw.rect(self.screen, (60, 20, 30), br, border_radius=5)
+                    pygame.draw.rect(self.screen, (200, 80, 100), br, 2, border_radius=5)
+                    label = f"J{self.game.players.index(op)+1}: {op.name if hasattr(op,'name') else 'Joueur'}"
+                    lsurf = self.font.render(label, True, (255, 200, 200))
+                    self.screen.blit(lsurf, (br.x + (btn_w - lsurf.get_width()) // 2,
+                                             br.y + (btn_h - lsurf.get_height()) // 2))
+                # Store rects for click detection
+                self._courtisane_player_rects = {
+                    i: pygame.Rect(bx0 + i * (btn_w + 8), by0, btn_w, btn_h)
+                    for i, _ in enumerate(others)
+                }
+
+        elif t == 'alchimiste':
+            step = pa.get('step', 1)
+            sel = pa.get('selected_indices', [])
+            if step == 1:
+                msg_a = "Alchimiste — Cliquez sur la 1ère carte de votre main à échanger"
+            else:
+                msg_a = "Alchimiste — Cliquez sur la 2ème carte de votre main à échanger"
+            surf = self.font.render(msg_a, True, (150, 240, 180))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((10, 30, 20, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+
+        elif t == 'magicien':
+            surf = self.font.render("Magicien — Cliquez sur n'importe quelle carte à renvoyer à l'échange", True, (120, 200, 255))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((10, 20, 40, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            HL_MAG = (80, 180, 255, 110)
+            for (cx, cy) in pa.get('valid_cour', []):
+                _hl_cour(cx, cy, HL_MAG)
+            for pos in pa.get('valid_tiles', []):
+                _hl_tile(pos, HL_MAG)
+            for pos in pa.get('valid_ext', []):
+                _hl_tile(pos, HL_MAG)
+
+        elif t == 'chevalier_noir':
+            surf = self.font.render("Chevalier noir — Cliquez sur un Chevalier voisin à renvoyer", True, (180, 100, 255))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((25, 5, 40, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            HL_CN = (200, 80, 255, 120)
+            for (cx, cy) in pa.get('valid_cour', []):
+                _hl_cour(cx, cy, HL_CN)
+            for pos in pa.get('valid_tiles', []):
+                _hl_tile(pos, HL_CN)
 
     def _draw_header(self):
         current = self.game.players[self.game.current_player]

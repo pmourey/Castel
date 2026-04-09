@@ -161,6 +161,7 @@ class TestBleuEffects(unittest.TestCase):
     def test_alchimiste_swaps_two_hand_cards(self):
         game = make_game()
         player = game.players[0]
+        player.is_human = False
         h1, h2 = make_card('Roi'), make_card('Reine')
         e1, e2 = make_card('Prince'), make_card('Princesse')
         player.hand += [h1, h2]
@@ -258,6 +259,7 @@ class TestRougeEffects(unittest.TestCase):
     def test_courtisane_swaps_hand_cards(self):
         game = make_game()
         p0, p1 = game.players[0], game.players[1]
+        p0.is_human = False
         c0, c1 = make_card('Roi'), make_card('Reine')
         p0.hand.append(c0)
         p1.hand.append(c1)
@@ -431,9 +433,16 @@ class TestRougeEffects(unittest.TestCase):
         place_in_cour(game, esp, 1, 1)
         place_in_cour(game, c1, 0, 1)
         place_in_cour(game, c2, 2, 1)
+        p0, p1 = game.players[0], game.players[1]
+        c1.pion_owner = p0
+        c2.pion_owner = p1
+        game.players[0].is_human = False
         CardEffects.espion_effect(game, game.players[0], esp, (1, 1))
-        self.assertIs(game.board.cour[1][0], c2)
-        self.assertIs(game.board.cour[1][2], c1)
+        # Cards stay in place; only pion_owner is swapped
+        self.assertIs(game.board.cour[1][0], c1)
+        self.assertIs(game.board.cour[1][2], c2)
+        self.assertIs(c1.pion_owner, p1)
+        self.assertIs(c2.pion_owner, p0)
 
     def test_favorite_moves_roi_for_ai(self):
         game = make_game()
@@ -501,7 +510,7 @@ class TestRougeEffects(unittest.TestCase):
         place_in_cour(game, chev, 1, 0)
         CardEffects.chevalier_noir_effect(game, game.players[0], make_card('Chevalier_noir'), (0, 0))
         self.assertIsNotNone(game.pending_action)
-        self.assertEqual(game.pending_action['type'], 'pick_return')
+        self.assertEqual(game.pending_action['type'], 'chevalier_noir')
 
     def test_conseiller_roi_places_exchange_card(self):
         game = make_game()
@@ -1412,8 +1421,7 @@ class TestPickReturn(unittest.TestCase):
         place_in_cour(game, card, 1, 1)
         apply(game, 'Magicien', player=player)
         self.assertIsNotNone(game.pending_action)
-        self.assertEqual(game.pending_action['type'], 'pick_return')
-        self.assertEqual(game.pending_action['zone'], 'cour')
+        self.assertEqual(game.pending_action['type'], 'magicien')
 
     def test_roi_sets_pending_for_human(self):
         game = make_game()
