@@ -336,7 +336,15 @@ class GameState:
             card = self.board.cour[cy][cx]
             if card is None:
                 return False
-            self.board.cour[cy][cx] = None
+            # Handle Chevalier stack: restore protected card to board
+            protected = getattr(card, 'protects', None)
+            if protected:
+                self.board.cour[cy][cx] = protected
+                protected.protected = False
+                protected.protected_by = None
+                card.protects = None
+            else:
+                self.board.cour[cy][cx] = None
         elif zone == 'ext':
             card = self.board.exterieur.pop(position, None)
             if card is None:

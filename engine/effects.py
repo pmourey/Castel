@@ -90,6 +90,27 @@ class CardEffects:
         return neighbors
 
     @staticmethod
+    def _remove_cour_card(game, cx, cy, permanently=False):
+        """Remove the card at cour[cy][cx], returning it to its owner unless permanently=True.
+        If the card is a Chevalier protecting another card, the protected card is freed
+        and restored to the board at (cx, cy). Returns the removed card."""
+        card = game.board.cour[cy][cx]
+        if card is None:
+            return None
+        protected = getattr(card, 'protects', None)
+        if not permanently:
+            CardEffects._return_card(game, card)
+        # Restore protected card to board (now unprotected), or clear cell
+        if protected:
+            game.board.cour[cy][cx] = protected
+            protected.protected = False
+            protected.protected_by = None
+            card.protects = None
+        else:
+            game.board.cour[cy][cx] = None
+        return card
+
+    @staticmethod
     def _pending_pick_return(game, player, effect_name, zone, valid_positions, next_action=None):
         """Set pending_action so the human player can interactively select a card to return."""
         game.pending_action = {
@@ -154,9 +175,7 @@ class CardEffects:
             return
         if not player.is_human:
             cx, cy = random.choice(cards_on_board)
-            card_to_move = game.board.cour[cy][cx]
-            CardEffects._return_card(game, card_to_move)
-            game.board.cour[cy][cx] = None
+            CardEffects._remove_cour_card(game, cx, cy)
             return
         CardEffects._pending_pick_return(game, player, 'Magicien', 'cour', cards_on_board)
 
@@ -216,9 +235,7 @@ class CardEffects:
             return
         if not player.is_human:
             cx, cy = random.choice(candidates)
-            removed = game.board.cour[cy][cx]
-            CardEffects._return_card(game, removed)
-            game.board.cour[cy][cx] = None
+            CardEffects._remove_cour_card(game, cx, cy)
             return
         CardEffects._pending_pick_return(game, player, 'Traitre', 'cour', candidates)
 
@@ -255,9 +272,7 @@ class CardEffects:
             return
         if not player.is_human:
             cx, cy = random.choice(cards_on_board)
-            removed = game.board.cour[cy][cx]
-            CardEffects._return_card(game, removed)
-            game.board.cour[cy][cx] = None
+            CardEffects._remove_cour_card(game, cx, cy)
             return
         CardEffects._pending_pick_return(game, player, 'Roi', 'cour', cards_on_board)
     
@@ -296,9 +311,7 @@ class CardEffects:
             return
         if not player.is_human:
             cx, cy = random.choice(cards_on_board)
-            removed = game.board.cour[cy][cx]
-            CardEffects._return_card(game, removed)
-            game.board.cour[cy][cx] = None
+            CardEffects._remove_cour_card(game, cx, cy)
             return
         CardEffects._pending_pick_return(game, player, 'Reine', 'cour', cards_on_board)
     
@@ -309,8 +322,7 @@ class CardEffects:
             for cx in range(4):
                 c = game.board.cour[cy][cx]
                 if c and "Chevalier" in c.nom:
-                    CardEffects._return_card(game, c)
-                    game.board.cour[cy][cx] = None
+                    CardEffects._remove_cour_card(game, cx, cy)
                     return
     
     @staticmethod
@@ -333,7 +345,12 @@ class CardEffects:
             idx1, idx2 = random.sample(range(len(cards_on_board)), 2)
             x1, y1 = cards_on_board[idx1]
             x2, y2 = cards_on_board[idx2]
-            game.board.cour[y1][x1], game.board.cour[y2][x2] = game.board.cour[y2][x2], game.board.cour[y1][x1]
+            c1 = game.board.cour[y1][x1]
+            c2 = game.board.cour[y2][x2]
+            p1 = getattr(c1, 'pion_owner', None)
+            p2 = getattr(c2, 'pion_owner', None)
+            c1.pion_owner = p2
+            c2.pion_owner = p1
             return
         # Human: interactive 2-step selection
         game.pending_action = {
@@ -437,8 +454,7 @@ class CardEffects:
             return
         if not player.is_human:
             cx2, cy2 = valid[0]
-            CardEffects._return_card(game, game.board.cour[cy2][cx2])
-            game.board.cour[cy2][cx2] = None
+            CardEffects._remove_cour_card(game, cx2, cy2)
             return
         CardEffects._pending_pick_return(game, player, 'Dame_de_compagnie', 'cour', valid)
 
@@ -454,8 +470,7 @@ class CardEffects:
             return
         if not player.is_human:
             cx2, cy2 = valid[0]
-            CardEffects._return_card(game, game.board.cour[cy2][cx2])
-            game.board.cour[cy2][cx2] = None
+            CardEffects._remove_cour_card(game, cx2, cy2)
             return
         CardEffects._pending_pick_return(game, player, 'Courtisan', 'cour', valid)
 
@@ -472,7 +487,7 @@ class CardEffects:
             return
         if not player.is_human:
             cx2, cy2 = valid[0]
-            game.board.cour[cy2][cx2] = None
+            CardEffects._remove_cour_card(game, cx2, cy2, permanently=True)
             return
         game.pending_action = {
             'type': 'assassin',
@@ -585,8 +600,7 @@ class CardEffects:
             return
         if not player.is_human:
             cx2, cy2 = valid[0]
-            CardEffects._return_card(game, game.board.cour[cy2][cx2])
-            game.board.cour[cy2][cx2] = None
+            CardEffects._remove_cour_card(game, cx2, cy2)
             return
         CardEffects._pending_pick_return(game, player, 'Chevalier_noir', 'cour', valid)
 
@@ -626,7 +640,15 @@ class CardEffects:
         if not player.is_human:
             cx2, cy2 = random.choice(cards_in_cour)
             pulled = game.board.cour[cy2][cx2]
-            game.board.cour[cy2][cx2] = None
+            # Handle Chevalier stack: restore protected card to board
+            protected = getattr(pulled, 'protects', None)
+            if protected:
+                game.board.cour[cy2][cx2] = protected
+                protected.protected = False
+                protected.protected_by = None
+                pulled.protects = None
+            else:
+                game.board.cour[cy2][cx2] = None
             ext_x = 6
             while (ext_x, 0) in game.board.exterieur:
                 ext_x += 1
@@ -643,27 +665,27 @@ class CardEffects:
     def enchanteur_effect(game, player, card, position):
         """L'enchanteur renvoie la dernière carte à avoir été placée (avant lui)."""
         prev = game.previous_placed_card
-        if prev:
-            # Remove it from wherever it is on the board
-            for cy in range(4):
-                for cx in range(4):
-                    if game.board.cour[cy][cx] is prev:
-                        game.board.cour[cy][cx] = None
-                        CardEffects._return_card(game, prev)
-                        game.previous_placed_card = None
-                        return
-            for (tx, ty), tile in game.board.tiles.items():
-                if tile['card'] is prev:
-                    tile['card'] = None
-                    CardEffects._return_card(game, prev)
+        if not prev or prev is card:
+            return
+        # Remove it from wherever it is on the board
+        for cy in range(4):
+            for cx in range(4):
+                if game.board.cour[cy][cx] is prev:
+                    CardEffects._remove_cour_card(game, cx, cy)
                     game.previous_placed_card = None
                     return
-            for ext_pos, ext_card in list(game.board.exterieur.items()):
-                if ext_card is prev:
-                    del game.board.exterieur[ext_pos]
-                    CardEffects._return_card(game, prev)
-                    game.previous_placed_card = None
-                    return
+        for (tx, ty), tile in game.board.tiles.items():
+            if tile['card'] is prev:
+                tile['card'] = None
+                CardEffects._return_card(game, prev)
+                game.previous_placed_card = None
+                return
+        for ext_pos, ext_card in list(game.board.exterieur.items()):
+            if ext_card is prev:
+                del game.board.exterieur[ext_pos]
+                CardEffects._return_card(game, prev)
+                game.previous_placed_card = None
+                return
 
     @staticmethod
     def engin_siege_effect(game, player, card, position):

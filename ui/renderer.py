@@ -590,9 +590,12 @@ class CastelWindow:
             if (gx, gy) in pa['valid'] and (gx, gy) != first:
                 x1, y1 = first
                 x2, y2 = gx, gy
-                self.game.board.cour[y1][x1], self.game.board.cour[y2][x2] = (
-                    self.game.board.cour[y2][x2], self.game.board.cour[y1][x1]
-                )
+                c1 = self.game.board.cour[y1][x1]
+                c2 = self.game.board.cour[y2][x2]
+                p1 = getattr(c1, 'pion_owner', None)
+                p2 = getattr(c2, 'pion_owner', None)
+                c1.pion_owner = p2
+                c2.pion_owner = p1
                 self.game.pending_action = None
                 self.add_log(f"Intrigant: pions échangés entre {first} et {(gx, gy)}")
                 if self.game.advance_turn_if_done():
@@ -610,9 +613,10 @@ class CastelWindow:
             return
         gx, gy = grid
         if (gx, gy) in pa['valid']:
+            from engine.effects import CardEffects
             target = self.game.board.cour[gy][gx]
             name = target.nom if target else str((gx, gy))
-            self.game.board.cour[gy][gx] = None  # permanently removed
+            CardEffects._remove_cour_card(self.game, gx, gy, permanently=True)
             self.game.pending_action = None
             self.add_log(f"Assassin: {name} éliminé définitivement")
             if self.game.advance_turn_if_done():
@@ -631,7 +635,15 @@ class CastelWindow:
         gx, gy = grid
         if (gx, gy) in pa['valid']:
             pulled = self.game.board.cour[gy][gx]
-            self.game.board.cour[gy][gx] = None
+            # Handle Chevalier stack: restore protected card to board
+            protected = getattr(pulled, 'protects', None)
+            if protected:
+                self.game.board.cour[gy][gx] = protected
+                protected.protected = False
+                protected.protected_by = None
+                pulled.protects = None
+            else:
+                self.game.board.cour[gy][gx] = None
             ext_x = 6
             while (ext_x, 0) in self.game.board.exterieur:
                 ext_x += 1

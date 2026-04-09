@@ -320,17 +320,23 @@ class TestRougeEffects(unittest.TestCase):
         self.assertNotIn(c1, p1.hand)
 
     def test_intrigant_swaps_two_cour_cards(self):
+        """Intrigant swaps pion_owners of two cards, not the card positions."""
         game = make_game()
+        player0 = game.players[0]
+        player1 = game.players[1]
         c1, c2, intr = make_card('Roi'), make_card('Reine'), make_card('Intriguant')
+        c1.pion_owner = player0
+        c2.pion_owner = player1
         place_in_cour(game, intr, 0, 0)
         place_in_cour(game, c1, 1, 0)
         place_in_cour(game, c2, 2, 0)
         game.players[0].is_human = False
         CardEffects.intrigant_effect(game, game.players[0], intr, (0, 0))
-        pos1, pos2 = game.board.cour[0][1], game.board.cour[0][2]
-        self.assertIn(pos1, [c1, c2])
-        self.assertIn(pos2, [c1, c2])
-        self.assertIsNot(pos1, pos2)
+        # Cards stay in place, only pion_owners are swapped
+        self.assertIs(game.board.cour[0][1], c1)
+        self.assertIs(game.board.cour[0][2], c2)
+        self.assertIs(c1.pion_owner, player1)
+        self.assertIs(c2.pion_owner, player0)
 
     def test_intrigant_sets_pending_for_human(self):
         game = make_game()
@@ -1019,6 +1025,52 @@ class TestProtectedCards(unittest.TestCase):
         place_in_cour(game, protected, 1, 0)        # cour[y=0][x=1]
         CardEffects.courtisan_effect(game, game.players[0], courtisan, (0, 0))
         self.assertIsNotNone(game.board.cour[0][1], "Courtisan must skip a protected card")
+
+    def test_assassin_frees_protected_card_when_removing_chevalier(self):
+        """Assassin removes the Chevalier but restores the protected card to the board."""
+        game = make_game()
+        game.players[0].is_human = False
+        protected = make_card('Roi')
+        chevalier = make_card('Chevalier')
+        protected.protected = True
+        chevalier.protects = protected
+        place_in_cour(game, chevalier, 1, 0)
+        CardEffects.assassin_effect(game, game.players[0], make_card('Assassin'), (0, 0))
+        self.assertIs(game.board.cour[0][1], protected, "Assassin must free the protected card")
+        self.assertFalse(getattr(protected, 'protected', False))
+        self.assertIsNone(getattr(chevalier, 'protects', None))
+
+    def test_courtisan_frees_protected_card_when_removing_chevalier(self):
+        """Courtisan returns the Chevalier and restores the protected card."""
+        game = make_game()
+        player = game.players[0]
+        player.is_human = False
+        protected = make_card('Roi')
+        chevalier = make_card('Chevalier')
+        chevalier.pion_owner = player
+        protected.protected = True
+        chevalier.protects = protected
+        place_in_cour(game, chevalier, 1, 0)
+        CardEffects.courtisan_effect(game, player, make_card('Courtisan'), (0, 0))
+        self.assertIs(game.board.cour[0][1], protected, "Courtisan must free the protected card")
+        self.assertIn(chevalier, player.hand)
+        self.assertFalse(getattr(protected, 'protected', False))
+
+    def test_enchanteur_frees_protected_card_when_chevalier_was_previous(self):
+        """Enchanteur returns the Chevalier and restores the protected card."""
+        game = make_game()
+        player = game.players[0]
+        protected = make_card('Roi')
+        chevalier = make_card('Chevalier')
+        chevalier.pion_owner = player
+        protected.protected = True
+        chevalier.protects = protected
+        place_in_cour(game, chevalier, 1, 1)
+        game.previous_placed_card = chevalier
+        CardEffects.enchanteur_effect(game, player, make_card('Enchanteur'), (6, 0))
+        self.assertIs(game.board.cour[1][1], protected, "Enchanteur must free the protected card")
+        self.assertIn(chevalier, player.hand)
+        self.assertFalse(getattr(protected, 'protected', False))
 
 
 # ---------------------------------------------------------------------------
