@@ -413,6 +413,8 @@ class CastelWindow:
                 if tile['type'] == 'rempart' and tile['card'] is None and (gx, gy) != src:
                     if self.game.resolve_guetteur(src, (gx, gy)):
                         self.add_log(f"Guetteur: soldat déplacé vers {(gx, gy)}")
+                        if self.game.advance_turn_if_done():
+                            self.add_log(f"Tour J{self.game.current_player+1}")
                 else:
                     self.add_log("Guetteur: destination invalide (rempart libre requis).")
 
@@ -447,6 +449,8 @@ class CastelWindow:
             if self.game.resolve_conseiller(ei, grid):
                 self.add_log(f"Conseiller: carte placée en {grid}")
                 self.dragging_card = None
+                if self.game.advance_turn_if_done():
+                    self.add_log(f"Tour J{self.game.current_player+1}")
                 return True
 
         # Try exterior strip
@@ -464,6 +468,8 @@ class CastelWindow:
             if self.game.resolve_conseiller(ei, free):
                 self.add_log(f"Conseiller: carte placée en {free}")
                 self.dragging_card = None
+                if self.game.advance_turn_if_done():
+                    self.add_log(f"Tour J{self.game.current_player+1}")
                 return True
 
         self.add_log("Conseiller: position invalide pour cette carte.")
@@ -496,6 +502,8 @@ class CastelWindow:
                 if (gx, gy) != src and self.game.board.cour[gy][gx] is None:
                     if self.game.resolve_prince_charmant(src, (gx, gy)):
                         self.add_log(f"Prince charmant: carte déplacée vers {(gx, gy)}")
+                        if self.game.advance_turn_if_done():
+                            self.add_log(f"Tour J{self.game.current_player+1}")
                 else:
                     self.add_log("Prince charmant: case invalide (case libre dans la cour requise).")
 
@@ -944,59 +952,60 @@ class CastelWindow:
 
     def _draw_hand_panel(self):
         current = self.game.players[self.game.current_player]
+        # Always render the human player's hand; just lock it when it's not their turn
+        human = next((p for p in self.game.players if p.is_human), current)
+        is_human_turn = current.is_human
 
         r = pygame.Rect(self.hand_x + 3, TOP_H + 3, self.hand_w - 6, self.inner_h - 6)
         pygame.draw.rect(self.screen, (23, 23, 36), r)
-        pygame.draw.rect(self.screen, (95, 95, 135), r, 2)
+        pygame.draw.rect(self.screen, (95, 95, 135) if is_human_turn else (60, 60, 90), r, 2)
 
-        who = "VOTRE MAIN" if current.is_human else f"IA {self.game.current_player+1}"
-        color = (90, 215, 90) if current.is_human else (215, 95, 95)
-        self.screen.blit(self.font.render(who, True, color), (self.hand_x + 12, TOP_H + 10))
+        title_color = (90, 215, 90) if is_human_turn else (130, 130, 155)
+        self.screen.blit(self.font.render("VOTRE MAIN", True, title_color), (self.hand_x + 12, TOP_H + 10))
 
-        if not current.is_human:
-            self.screen.blit(
-                self.font_small.render("Tour de l ordinateur en cours...", True, (155, 135, 95)),
-                (self.hand_x + 12, TOP_H + 34))
-            return
-
-        # --- Compute layout heights ---
+        # --- Compute layout heights (always using human player) ---
         bh = HAND_BTN_H
         btn_y = TOP_H + self.inner_h - bh - 10
 
         exch_rows = max(1, (len(self.game.exchange) + self.exch_cols - 1) // self.exch_cols)
-        exch_h    = exch_rows * (self.hand_card_size + EXCH_GAP) + 24   # 24 = title line
+        exch_h    = exch_rows * (self.hand_card_size + EXCH_GAP) + 24
         exch_y    = btn_y - 4 - exch_h
 
         hand_cards_bottom = exch_y - 8
         hand_cards_top    = TOP_H + 32
 
         # --- Separators ---
-        pygame.draw.line(self.screen, (70, 70, 105),
+        sep_color = (70, 70, 105) if is_human_turn else (45, 45, 70)
+        pygame.draw.line(self.screen, sep_color,
                          (self.hand_x + 8, exch_y - 4), (self.hand_x + self.hand_w - 8, exch_y - 4))
-        pygame.draw.line(self.screen, (70, 70, 105),
+        pygame.draw.line(self.screen, sep_color,
                          (self.hand_x + 8, btn_y - 4), (self.hand_x + self.hand_w - 8, btn_y - 4))
 
-        # --- Action buttons ---
-        self._draw_hand_buttons(current, btn_y)
+        # --- Action buttons (grayed when not human's turn) ---
+        self._draw_hand_buttons(human, btn_y, locked=not is_human_turn)
 
         # --- Exchange section ---
-        self._draw_exchange_in_hand(exch_y, exch_rows)
+        self._draw_exchange_in_hand(exch_y, exch_rows, locked=not is_human_turn)
 
         # --- Hand cards ---
         cw = self.hand_card_size; gap = HAND_CARD_GAP; cols = 5
         max_rows = max(1, (hand_cards_bottom - hand_cards_top) // (cw + gap))
 
-        for i, card in enumerate(current.hand):
+        for i, card in enumerate(human.hand):
             col = i % cols
             row = i // cols
             if row >= max_rows:
                 break
             cx_ = self.hand_x + 10 + col * (cw + gap)
             cy_ = hand_cards_top + row * (cw + gap)
-            selected  = (card is self.selected_card)
-            exch_sel  = (self.exchange_mode and self.selected_hand_card_idx == i)
-            border = (0, 255, 70) if selected else (255, 200, 0) if exch_sel else (95, 95, 135)
-            bw = 3 if (selected or exch_sel) else 1
+            selected  = is_human_turn and (card is self.selected_card)
+            exch_sel  = is_human_turn and (self.exchange_mode and self.selected_hand_card_idx == i)
+            if not is_human_turn:
+                border = (55, 55, 80)
+                bw = 1
+            else:
+                border = (0, 255, 70) if selected else (255, 200, 0) if exch_sel else (95, 95, 135)
+                bw = 3 if (selected or exch_sel) else 1
             img = self.game.board.card_images.get(card.nom)
             if img:
                 fitted = self._fit_image(img, cw - 4, cw - 4)
@@ -1009,13 +1018,28 @@ class CastelWindow:
                 self.screen.blit(self.font_small.render(card.nom[:9], True, (220, 220, 220)),
                                  (cx_ + 3, cy_ + cw // 2 - 7))
             # Zone colour dot
-            pygame.draw.circle(self.screen, self._card_color(card), (cx_ + cw - 8, cy_ + 8), 5)
+            dot_color = self._card_color(card) if is_human_turn else (55, 55, 75)
+            pygame.draw.circle(self.screen, dot_color, (cx_ + cw - 8, cy_ + 8), 5)
 
-    def _draw_exchange_in_hand(self, exch_y, exch_rows):
+        # --- Waiting overlay when it's the AI's turn ---
+        if not is_human_turn:
+            overlay = pygame.Surface((self.hand_w - 6, self.inner_h - 6), pygame.SRCALPHA)
+            overlay.fill((10, 10, 20, 155))
+            self.screen.blit(overlay, (self.hand_x + 3, TOP_H + 3))
+            ai_idx = self.game.current_player + 1
+            msg1 = self.font.render(f"IA {ai_idx} joue...", True, (215, 155, 60))
+            msg2 = self.font_small.render("Votre tour reprendra bientôt", True, (155, 135, 90))
+            cx_mid = self.hand_x + self.hand_w // 2
+            cy_mid = TOP_H + self.inner_h // 2
+            self.screen.blit(msg1, (cx_mid - msg1.get_width() // 2, cy_mid - 24))
+            self.screen.blit(msg2, (cx_mid - msg2.get_width() // 2, cy_mid + 8))
+
+    def _draw_exchange_in_hand(self, exch_y, exch_rows, locked=False):
         """Draw the exchange section inside the hand panel."""
         hs = self.hand_card_size
+        title_color = (155, 150, 195) if not locked else (100, 100, 130)
         self.screen.blit(
-            self.font_small.render(f"ECHANGE ({len(self.game.exchange)})", True, (155, 150, 195)),
+            self.font_small.render(f"ECHANGE ({len(self.game.exchange)})", True, title_color),
             (self.hand_x + 10, exch_y + 4))
 
         for i, card in enumerate(self.game.exchange):
@@ -1025,12 +1049,14 @@ class CastelWindow:
                 break
             cx_ = self.hand_x + 10 + col * (hs + EXCH_GAP)
             cy_ = exch_y + 24 + row * (hs + EXCH_GAP)
-            selected = (self.exchange_mode and self.selected_exchange_card_idx == i)
-            border = (255, 200, 0) if selected else (75, 75, 115)
+            selected = (not locked) and (self.exchange_mode and self.selected_exchange_card_idx == i)
+            border = (255, 200, 0) if selected else ((75, 75, 115) if not locked else (45, 45, 70))
             bw = 2 if selected else 1
             img = self.game.board.card_images.get(card.nom)
             if img:
                 fitted = self._fit_image(img, hs - 2, hs - 2)
+                if locked:
+                    fitted = fitted.copy(); fitted.set_alpha(100)
                 fw, fh = fitted.get_size()
                 pygame.draw.rect(self.screen, border, (cx_, cy_, hs, hs), bw)
                 self.screen.blit(fitted, (cx_ + (hs - fw) // 2, cy_ + (hs - fh) // 2))
@@ -1040,25 +1066,34 @@ class CastelWindow:
                 self.screen.blit(self.font_small.render(card.nom[:7], True, (220, 220, 220)),
                                  (cx_ + 2, cy_ + hs // 2 - 7))
 
-    def _draw_hand_buttons(self, player, btn_y):
-        bw = 118; bh = HAND_BTN_H; gap = HAND_BTN_GAP
-        defs = {
-            "draw":     ("Piocher",  (38, 82, 38),  (78, 175, 78),  bool(player.deck)),
-            "exchange": ("Echanger", (38, 38, 82),  (78, 78, 175),  bool(self.game.exchange and player.hand)),
-            "skip":     ("Passer",   (82, 38, 38),  (175, 78, 78),  True),
-        }
+    def _draw_hand_buttons(self, player, btn_y, locked=False):
+        bh = HAND_BTN_H
+        if locked:
+            defs = {
+                "draw":     ("Piocher",  (28, 35, 28),  (50, 60, 50),  False),
+                "exchange": ("Echanger", (28, 28, 35),  (50, 50, 60),  False),
+                "skip":     ("Passer",   (35, 28, 28),  (60, 50, 50),  False),
+            }
+        else:
+            defs = {
+                "draw":     ("Piocher",  (38, 82, 38),  (78, 175, 78),  bool(player.deck)),
+                "exchange": ("Echanger", (38, 38, 82),  (78, 78, 175),  bool(self.game.exchange and player.hand)),
+                "skip":     ("Passer",   (82, 38, 38),  (175, 78, 78),  True),
+            }
         for name, rect in self.action_buttons.items():
             label, bg, border, active = defs[name]
             if not active:
                 bg = (45, 45, 45); border = (75, 75, 75)
             pygame.draw.rect(self.screen, bg, rect)
             pygame.draw.rect(self.screen, border, rect, 2)
-            lbl = self.font_small.render(label, True, (210, 210, 210))
+            lbl_color = (120, 120, 120) if locked else (210, 210, 210)
+            lbl = self.font_small.render(label, True, lbl_color)
             self.screen.blit(lbl, (rect.x + (rect.w - lbl.get_width()) // 2,
                                    rect.y + (rect.h - lbl.get_height()) // 2))
         acts = self.game.actions_remaining
+        acts_color = (120, 120, 80) if locked else (175, 175, 95)
         self.screen.blit(
-            self.font_small.render(f"Actions restantes: {acts}/2", True, (175, 175, 95)),
+            self.font_small.render(f"Actions restantes: {acts}/2", True, acts_color),
             (self.hand_x + 10, btn_y + bh + 4))
 
     # -------------------------------------------------------------------------
