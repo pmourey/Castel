@@ -299,7 +299,10 @@ class CastelWindow:
                 self.running = False
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    self.running = False
+                    if self.game.pending_action:
+                        self._cancel_pending_action()
+                    else:
+                        self.running = False
             if event.type == pygame.VIDEORESIZE:
                 self._on_resize(event.w, event.h)
             if event.type == pygame.MOUSEMOTION:
@@ -311,6 +314,20 @@ class CastelWindow:
                 if self.dragging_card:
                     self._handle_drop(event.pos)
 
+    def _cancel_pending_action(self):
+        """Cancel the current pending action (ESC or skip)."""
+        pa = self.game.pending_action
+        if not pa:
+            return
+        # For conseiller: if a card is being dragged back, return it to exchange
+        if pa.get('type') == 'conseiller' and pa.get('exchange_idx') is not None:
+            card = pa.get('dragging_card')
+            if card:
+                self.game.exchange.insert(pa['exchange_idx'], card)
+                self.dragging_card = None
+        self.game.pending_action = None
+        self.add_log("Action annulée (Échap)")
+
     def _handle_mouse_down(self, pos):
         if self.game_over:
             return
@@ -321,6 +338,11 @@ class CastelWindow:
 
         if hasattr(self, "tooltip_toggle_rect") and self.tooltip_toggle_rect.collidepoint(x, y):
             self.advanced_tooltip = not self.advanced_tooltip
+            return
+
+        # Pending-action interaction takes priority
+        if self.game.pending_action:
+            self._handle_pending_click(pos)
             return
 
         for name, rect in self.action_buttons.items():
@@ -356,6 +378,128 @@ class CastelWindow:
                 self.drag_offset = (x - cx_, y - cy_)
                 self.dragging_card = card
 
+    def _handle_pending_click(self, pos):
+        """Route a mouse click to the correct pending-action handler."""
+        pa = self.game.pending_action
+        t = pa.get('type')
+        if t == 'guetteur':
+            self._pending_guetteur(pos)
+        elif t == 'conseiller':
+            self._pending_conseiller_click(pos)
+        elif t == 'prince_charmant':
+            self._pending_prince_charmant(pos)
+
+    # -- Guetteur --
+
+    def _pending_guetteur(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+
+        if pa['step'] == 1:
+            # Click on a rempart tile that has a soldier
+            if (gx, gy) in pa['valid_sources']:
+                pa['source_pos'] = (gx, gy)
+                pa['step'] = 2
+                soldier_name = self.game.board.tiles[(gx, gy)]['card'].nom
+                self.add_log(f"Guetteur: {soldier_name} sélectionné. Cliquez sur le rempart de destination.")
+        elif pa['step'] == 2:
+            src = pa['source_pos']
+            if (gx, gy) in self.game.board.tiles:
+                tile = self.game.board.tiles[(gx, gy)]
+                if tile['type'] == 'rempart' and tile['card'] is None and (gx, gy) != src:
+                    if self.game.resolve_guetteur(src, (gx, gy)):
+                        self.add_log(f"Guetteur: soldat déplacé vers {(gx, gy)}")
+                else:
+                    self.add_log("Guetteur: destination invalide (rempart libre requis).")
+
+    # -- Conseiller du roi --
+
+    def _pending_conseiller_click(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+
+        if pa['step'] == 1:
+            # Player clicks an exchange card
+            ei = self._exchange_idx_at(x, y)
+            if ei is not None and 0 <= ei < len(self.game.exchange):
+                pa['exchange_idx'] = ei
+                pa['dragging_card'] = self.game.exchange[ei]
+                pa['step'] = 2
+                # Temporarily start a drag so the player can drop it
+                self.dragging_card = self.game.exchange[ei]
+                self.drag_offset = (self.hand_card_size // 2, self.hand_card_size // 2)
+                self.add_log(f"Conseiller: {self.game.exchange[ei].nom} sélectionné. Faites glisser vers la case.")
+        # step 2 is handled by _handle_drop
+
+    def _pending_conseiller_resolve(self, pos):
+        """Called from _handle_drop when pending conseiller is at step 2."""
+        pa = self.game.pending_action
+        ei = pa.get('exchange_idx')
+        x, y = pos
+
+        # Try castle grid first
+        grid = self._grid_from_px(x, y)
+        if grid:
+            if self.game.resolve_conseiller(ei, grid):
+                self.add_log(f"Conseiller: carte placée en {grid}")
+                self.dragging_card = None
+                return True
+
+        # Try exterior strip
+        if self._in_ext_strip(x, y):
+            free = self._ext_strip_pos_from_px(x, y)
+            if free in self.game.board.exterieur:
+                for bx in range(5, 50):
+                    for by2 in range(6, 12):
+                        if (bx, by2) not in self.game.board.exterieur:
+                            free = (bx, by2)
+                            break
+                    else:
+                        continue
+                    break
+            if self.game.resolve_conseiller(ei, free):
+                self.add_log(f"Conseiller: carte placée en {free}")
+                self.dragging_card = None
+                return True
+
+        self.add_log("Conseiller: position invalide pour cette carte.")
+        # Return card to exchange and reset to step 1
+        self.dragging_card = None
+        pa['step'] = 1
+        pa['dragging_card'] = None
+        pa['exchange_idx'] = None
+        return False
+
+    # -- Prince charmant --
+
+    def _pending_prince_charmant(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+
+        if pa['step'] == 1:
+            if (gx, gy) in pa['valid_sources']:
+                pa['source_pos'] = (gx, gy)
+                pa['step'] = 2
+                card_name = self.game.board.cour[gy][gx].nom
+                self.add_log(f"Prince charmant: {card_name} sélectionnée. Cliquez sur la case de destination.")
+        elif pa['step'] == 2:
+            src = pa['source_pos']
+            if 0 <= gx < 4 and 0 <= gy < 4:
+                if (gx, gy) != src and self.game.board.cour[gy][gx] is None:
+                    if self.game.resolve_prince_charmant(src, (gx, gy)):
+                        self.add_log(f"Prince charmant: carte déplacée vers {(gx, gy)}")
+                else:
+                    self.add_log("Prince charmant: case invalide (case libre dans la cour requise).")
+
+
     def _handle_button(self, name, player):
         if name == "draw":
             if player.deck:
@@ -373,6 +517,9 @@ class CastelWindow:
                 else:
                     self.add_log("Mode echange annule")
         elif name == "skip":
+            if self.game.pending_action:
+                self._cancel_pending_action()
+                return
             self.game.actions_remaining -= 1
             self.exchange_mode = False
             self.add_log("Action passee")
@@ -392,6 +539,12 @@ class CastelWindow:
             self.add_log(f"Echange impossible: {e}")
 
     def _handle_drop(self, pos):
+        # Conseiller pending: resolve drag placement
+        pa = self.game.pending_action
+        if pa and pa.get('type') == 'conseiller' and pa.get('step') == 2:
+            self._pending_conseiller_resolve(pos)
+            return
+
         current = self.game.players[self.game.current_player]
         x, y = pos
         placed = False
@@ -497,11 +650,90 @@ class CastelWindow:
         self._draw_hand_panel()
         if self.dragging_card:
             self._draw_dragged_card()
+        if self.game.pending_action:
+            self._draw_pending_overlays()
         self._draw_tooltip()
         self._draw_footer()
         if self.game_over:
             self._draw_win_overlay()
         pygame.display.flip()
+
+    def _draw_pending_overlays(self):
+        """Highlight valid targets for the active pending action."""
+        pa = self.game.pending_action
+        if not pa:
+            return
+        t = pa.get('type')
+
+        # Banner at the top of the castle area
+        msg = ""
+        if t == 'guetteur':
+            msg = ("Guetteur — Cliquez sur un soldat (rempart surligné)" if pa['step'] == 1
+                   else "Guetteur — Cliquez sur un rempart libre")
+        elif t == 'conseiller':
+            msg = ("Conseiller — Cliquez sur une carte de l'échange" if pa['step'] == 1
+                   else "Conseiller — Faites glisser la carte vers sa zone")
+        elif t == 'prince_charmant':
+            msg = ("Prince charmant — Cliquez sur un personnage féminin" if pa['step'] == 1
+                   else "Prince charmant — Cliquez sur une case libre de la cour")
+
+        if msg:
+            surf = self.font.render(msg, True, (255, 220, 60))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            by = TOP_H + 6
+            bg = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg.fill((30, 20, 0, 200))
+            self.screen.blit(bg, (bx - 8, by - 3))
+            self.screen.blit(surf, (bx, by))
+
+        # Highlight valid cells with a colored overlay
+        HL_SRC  = (255, 220, 50, 110)   # yellow — selectable source
+        HL_DST  = (80,  230, 80, 110)   # green  — valid destination
+        HL_EXCH = (80,  180, 255, 120)  # blue   — exchange card
+
+        def _hl_tile(pos, color):
+            px, py = self._castle_px(*pos)
+            s = pygame.Surface((self.cell, self.cell), pygame.SRCALPHA)
+            s.fill(color)
+            self.screen.blit(s, (px, py))
+            pygame.draw.rect(self.screen, color[:3], (px, py, self.cell, self.cell), 3)
+
+        def _hl_cour(cx, cy, color):
+            px, py = self._castle_px(cx, cy)
+            s = pygame.Surface((self.cell, self.cell), pygame.SRCALPHA)
+            s.fill(color)
+            self.screen.blit(s, (px, py))
+            pygame.draw.rect(self.screen, color[:3], (px, py, self.cell, self.cell), 3)
+
+        if t == 'guetteur':
+            if pa['step'] == 1:
+                for pos in pa['valid_sources']:
+                    _hl_tile(pos, HL_SRC)
+            else:
+                src = pa['source_pos']
+                if src:
+                    _hl_tile(src, HL_SRC)
+                for pos, tile in self.game.board.tiles.items():
+                    if tile['type'] == 'rempart' and tile['card'] is None and pos != src:
+                        _hl_tile(pos, HL_DST)
+
+        elif t == 'conseiller':
+            if pa['step'] == 1:
+                # Highlight exchange cards
+                pass  # The exchange area is already visible; handled via banner
+
+        elif t == 'prince_charmant':
+            if pa['step'] == 1:
+                for (cx, cy) in pa['valid_sources']:
+                    _hl_cour(cx, cy, HL_SRC)
+            else:
+                src = pa['source_pos']
+                if src:
+                    _hl_cour(*src, HL_SRC)
+                for cy in range(4):
+                    for cx in range(4):
+                        if (cx, cy) != src and self.game.board.cour[cy][cx] is None:
+                            _hl_cour(cx, cy, HL_DST)
 
     def _draw_header(self):
         current = self.game.players[self.game.current_player]

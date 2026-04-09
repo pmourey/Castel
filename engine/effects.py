@@ -82,19 +82,33 @@ class CardEffects:
     @staticmethod
     def guetteur_effect(game, player, card, position):
         """Le guetteur déplace un soldat vers une autre case de rempart libre."""
-        for (tx, ty), tile in game.board.tiles.items():
-            if tile['type'] == 'rempart' and tile['card'] and 'Soldat' in tile['card'].nom:
-                soldat = tile['card']
-                # Move to another free rempart
+        # Find soldiers on remparts
+        soldiers = [pos for pos, tile in game.board.tiles.items()
+                    if tile['type'] == 'rempart' and tile['card']
+                    and 'Soldat' in tile['card'].nom]
+        if not soldiers:
+            return  # Nothing to do
+        if not player.is_human:
+            # AI: move first soldier to first free rempart (original logic)
+            for src in soldiers:
+                soldat = game.board.tiles[src]['card']
                 for (nx, ny), ntile in game.board.tiles.items():
-                    if ntile['type'] == 'rempart' and ntile['card'] is None and (nx, ny) != (tx, ty):
+                    if ntile['type'] == 'rempart' and ntile['card'] is None and (nx, ny) != src:
                         ntile['card'] = soldat
-                        tile['card'] = None
+                        game.board.tiles[src]['card'] = None
                         return
-                # No free rempart: return soldat to owner
+                # No free rempart: return to owner
                 CardEffects._return_card(game, soldat)
-                tile['card'] = None
+                game.board.tiles[src]['card'] = None
                 return
+        # Human: request interactive selection
+        game.pending_action = {
+            'type': 'guetteur',
+            'step': 1,   # step 1 = select soldier source; step 2 = select destination
+            'player': player,
+            'source_pos': None,
+            'valid_sources': soldiers,
+        }
 
     @staticmethod
     def magicien_effect(game, player, card, position):
@@ -392,14 +406,25 @@ class CardEffects:
     @staticmethod
     def conseiller_roi_effect(game, player, card, position):
         """Le conseiller du roi met en jeu l'une des cartes se trouvant dans l'échange."""
-        if game.exchange:
+        if not game.exchange:
+            return
+        if not player.is_human:
+            # AI: take first exchange card and put in first free cour cell
             card_from_exchange = game.exchange.pop(0)
-            # Place it on the board if possible
             for cy in range(4):
                 for cx in range(4):
                     if game.board.cour[cy][cx] is None:
                         game.board.cour[cy][cx] = card_from_exchange
                         return
+            return
+        # Human: request interactive selection
+        game.pending_action = {
+            'type': 'conseiller',
+            'step': 1,   # step 1 = pick exchange card; step 2 = pick board position
+            'player': player,
+            'exchange_idx': None,
+            'dragging_card': None,
+        }
     
     @staticmethod
     def favorite_effect(game, player, card, position):
@@ -410,14 +435,31 @@ class CardEffects:
     @staticmethod
     def prince_charmant_effect(game, player, card, position):
         """Le prince charmant déplace un personnage féminin."""
-        female_cards = ["Reine", "Princesse", "Sorcière", "Fée"]
-        for cy in range(4):
-            for cx in range(4):
-                if game.board.cour[cy][cx]:
-                    if any(f in game.board.cour[cy][cx].nom for f in female_cards):
-                        game.exchange.append(game.board.cour[cy][cx])
-                        game.board.cour[cy][cx] = None
+        female_names = ["Reine", "Princesse", "Sorciere", "Fee"]
+        females = [(cx, cy) for cy in range(4) for cx in range(4)
+                   if game.board.cour[cy][cx]
+                   and any(f in game.board.cour[cy][cx].nom for f in female_names)]
+        if not females:
+            return
+        if not player.is_human:
+            # AI: move first female to first free cour cell
+            fx, fy = females[0]
+            female_card = game.board.cour[fy][fx]
+            for ty in range(4):
+                for tx in range(4):
+                    if (tx, ty) != (fx, fy) and game.board.cour[ty][tx] is None:
+                        game.board.cour[ty][tx] = female_card
+                        game.board.cour[fy][fx] = None
                         return
+            return
+        # Human: request interactive selection
+        game.pending_action = {
+            'type': 'prince_charmant',
+            'step': 1,   # step 1 = select female; step 2 = select destination
+            'player': player,
+            'valid_sources': females,
+            'source_pos': None,
+        }
     
     @staticmethod
     def chevalier_noir_effect(game, player, card, position):

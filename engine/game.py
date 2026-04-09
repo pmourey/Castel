@@ -41,6 +41,7 @@ class GameState:
         self.last_placed_card = None    # Dernière carte placée (pour enchanteur)
         self.previous_placed_card = None  # Avant-dernière carte placée
         self.last_displaced_card = None   # Carte déplacée lors du dernier placement (pour fantôme)
+        self.pending_action = None        # Interactive effect awaiting player input
 
         # Generate initial castle
         self.generate_castle()
@@ -308,6 +309,60 @@ class GameState:
                     # Return soldier to exchange
                     self.exchange.append(tile['card'])
                     tile['card'] = None
+
+    # ------------------------------------------------------------------
+    # Pending-action helpers (called by renderer when player resolves)
+    # ------------------------------------------------------------------
+
+    def resolve_guetteur(self, from_pos, to_pos):
+        """Move a soldier from from_pos to to_pos (both rempart tiles)."""
+        from_tile = self.board.tiles.get(from_pos)
+        to_tile   = self.board.tiles.get(to_pos)
+        if not from_tile or not to_tile:
+            return False
+        card = from_tile.get('card')
+        if not card or 'Soldat' not in card.nom:
+            return False
+        if to_tile.get('card') is not None:
+            return False
+        to_tile['card']   = card
+        from_tile['card'] = None
+        self.pending_action = None
+        return True
+
+    def resolve_conseiller(self, exchange_idx, position):
+        """Place the exchange card at position, respecting zone rules."""
+        if exchange_idx < 0 or exchange_idx >= len(self.exchange):
+            return False
+        card = self.exchange[exchange_idx]
+        if not self.can_place_card(card, position):
+            return False
+        self.exchange.pop(exchange_idx)
+        card.pion_owner = self.players[self.current_player]
+        if self.players[self.current_player].pions_remaining > 0:
+            self.players[self.current_player].pions_remaining -= 1
+        self.board.place_card(card, position)
+        self.last_position = position
+        self.previous_placed_card = self.last_placed_card
+        self.last_placed_card = card
+        self.pending_action = None
+        return True
+
+    def resolve_prince_charmant(self, from_pos, to_pos):
+        """Move a female cour card from from_pos to a free cour to_pos."""
+        fx, fy = from_pos
+        tx, ty = to_pos
+        if not (0 <= fx < 4 and 0 <= fy < 4 and 0 <= tx < 4 and 0 <= ty < 4):
+            return False
+        card = self.board.cour[fy][fx]
+        if not card:
+            return False
+        if self.board.cour[ty][tx] is not None:
+            return False
+        self.board.cour[ty][tx] = card
+        self.board.cour[fy][fx] = None
+        self.pending_action = None
+        return True
 
 
 

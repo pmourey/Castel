@@ -109,11 +109,14 @@ class TestBleuEffects(unittest.TestCase):
 
     def test_guetteur_moves_soldat_off_rempart(self):
         game = make_game()
+        # Use an AI player so the effect acts immediately (human triggers pending_action)
+        player = game.players[0]
+        player.is_human = False
         soldat = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
         rempart_positions = [pos for pos, t in game.board.tiles.items() if t['type'] == 'rempart']
         src = rempart_positions[0]
         place_on_tile(game, soldat, src)
-        apply(game, 'Guetteur', position=(-1, -1))
+        apply(game, 'Guetteur', player=player, position=(-1, -1))
         self.assertIsNot(game.board.tiles[src]['card'], soldat)
 
     def test_guetteur_no_soldat_is_safe(self):
@@ -375,9 +378,12 @@ class TestRougeEffects(unittest.TestCase):
 
     def test_prince_charmant_removes_female(self):
         game = make_game()
+        # Use AI player for immediate resolution; human gets interactive pending_action
+        player = game.players[0]
+        player.is_human = False
         reine = make_card('Reine')
         place_in_cour(game, reine, 2, 0)
-        CardEffects.prince_charmant_effect(game, game.players[0], make_card('Prince_charmant'), (0, 0))
+        CardEffects.prince_charmant_effect(game, player, make_card('Prince_charmant'), (0, 0))
         self.assertIsNone(game.board.cour[0][2])
 
     def test_chevalier_noir_removes_chevalier_neighbor(self):
@@ -389,9 +395,12 @@ class TestRougeEffects(unittest.TestCase):
 
     def test_conseiller_roi_places_exchange_card(self):
         game = make_game()
+        # Use AI player so the card is placed immediately
+        player = game.players[0]
+        player.is_human = False
         ex_card = make_card('Reine')
         game.exchange.append(ex_card)
-        CardEffects.conseiller_roi_effect(game, game.players[0], make_card('Conseiller_du_roi'), (0, 0))
+        CardEffects.conseiller_roi_effect(game, player, make_card('Conseiller_du_roi'), (0, 0))
         found = any(game.board.cour[y][x] is ex_card for y in range(4) for x in range(4))
         self.assertTrue(found)
         self.assertNotIn(ex_card, game.exchange)
@@ -927,6 +936,153 @@ class TestChevalierTooltipStack(unittest.TestCase):
             cur = cur.protects
             stack.append(cur)
         self.assertEqual(len(stack), 3)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Interactive pending actions (human player gets pending_action,
+#        AI player gets immediate resolution, resolve_* helpers work correctly)
+# ---------------------------------------------------------------------------
+
+class TestPendingActions(unittest.TestCase):
+    """Verify that interactive card effects set pending_action for humans
+    and that resolve_* helpers correctly apply the action."""
+
+    # --- Guetteur ---
+
+    def test_guetteur_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        self.assertTrue(player.is_human)
+        soldat = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
+        src = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart'][0]
+        place_on_tile(game, soldat, src)
+        apply(game, 'Guetteur', player=player, position=(-1, -1))
+        self.assertIsNotNone(game.pending_action, "Human player should get pending_action")
+        self.assertEqual(game.pending_action['type'], 'guetteur')
+
+    def test_guetteur_valid_sources_contains_soldat_tile(self):
+        game = make_game()
+        player = game.players[0]
+        player.is_human = True
+        soldat = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
+        rempart_tiles = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart']
+        src = rempart_tiles[0]
+        place_on_tile(game, soldat, src)
+        apply(game, 'Guetteur', player=player, position=(-1, -1))
+        pa = game.pending_action
+        self.assertIn(src, pa['valid_sources'])
+
+    def test_resolve_guetteur_moves_soldat(self):
+        game = make_game()
+        soldat = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
+        rempart_tiles = [p for p, t in game.board.tiles.items() if t['type'] == 'rempart']
+        src = rempart_tiles[0]
+        dst = rempart_tiles[1] if len(rempart_tiles) > 1 else None
+        if dst is None:
+            return  # Skip if only one rempart
+        place_on_tile(game, soldat, src)
+        # Simulate pending action at step 2 (source selected)
+        game.pending_action = {
+            'type': 'guetteur',
+            'step': 2,
+            'player': game.players[0],
+            'valid_sources': [src],
+            'source_pos': src,
+        }
+        result = game.resolve_guetteur(src, dst)
+        self.assertTrue(result)
+        self.assertIsNone(game.board.tiles[src]['card'])
+        self.assertIs(game.board.tiles[dst]['card'], soldat)
+        self.assertIsNone(game.pending_action)
+
+    # --- Conseiller du roi ---
+
+    def test_conseiller_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        self.assertTrue(player.is_human)
+        ex_card = make_card('Reine')
+        game.exchange.append(ex_card)
+        CardEffects.conseiller_roi_effect(game, player, make_card('Conseiller_du_roi'), (0, 0))
+        self.assertIsNotNone(game.pending_action, "Human player should get pending_action")
+        self.assertEqual(game.pending_action['type'], 'conseiller')
+
+    def test_resolve_conseiller_places_card_in_valid_zone(self):
+        game = make_game()
+        player = game.players[0]
+        ex_card = make_card('Reine', 'Rouge', 'Arrive à la cour')
+        game.exchange.append(ex_card)
+        result = game.resolve_conseiller(0, (1, 1))
+        self.assertTrue(result)
+        self.assertIs(game.board.cour[1][1], ex_card)
+        self.assertIsNone(game.pending_action)
+
+    def test_resolve_conseiller_rejects_wrong_zone(self):
+        game = make_game()
+        player = game.players[0]
+        # Orange card cannot be placed in cour (it goes on tiles)
+        ex_card = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
+        game.exchange.append(ex_card)
+        # Try to place Orange card in cour — invalid zone
+        result = game.resolve_conseiller(0, (0, 0))
+        self.assertFalse(result)
+
+    # --- Prince charmant ---
+
+    def test_prince_charmant_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        self.assertTrue(player.is_human)
+        reine = make_card('Reine')
+        place_in_cour(game, reine, 2, 0)
+        CardEffects.prince_charmant_effect(game, player, make_card('Prince_charmant'), (0, 0))
+        self.assertIsNotNone(game.pending_action, "Human player should get pending_action")
+        self.assertEqual(game.pending_action['type'], 'prince_charmant')
+
+    def test_prince_charmant_valid_sources_has_female_card(self):
+        game = make_game()
+        player = game.players[0]
+        player.is_human = True
+        reine = make_card('Reine')
+        place_in_cour(game, reine, 2, 0)
+        CardEffects.prince_charmant_effect(game, player, make_card('Prince_charmant'), (0, 0))
+        pa = game.pending_action
+        self.assertIn((2, 0), pa['valid_sources'])
+
+    def test_resolve_prince_charmant_moves_female_card(self):
+        game = make_game()
+        reine = make_card('Reine')
+        place_in_cour(game, reine, 2, 0)
+        # Simulate pending action at step 2 (source selected)
+        game.pending_action = {
+            'type': 'prince_charmant',
+            'step': 2,
+            'player': game.players[0],
+            'valid_sources': [(2, 0)],
+            'source_pos': (2, 0),
+        }
+        result = game.resolve_prince_charmant((2, 0), (3, 3))
+        self.assertTrue(result)
+        self.assertIsNone(game.board.cour[0][2])
+        self.assertIs(game.board.cour[3][3], reine)
+        self.assertIsNone(game.pending_action)
+
+    def test_resolve_prince_charmant_rejects_occupied_destination(self):
+        game = make_game()
+        reine = make_card('Reine')
+        blocker = make_card('Roi')
+        place_in_cour(game, reine, 2, 0)
+        place_in_cour(game, blocker, 3, 3)
+        game.pending_action = {
+            'type': 'prince_charmant',
+            'step': 2,
+            'player': game.players[0],
+            'valid_sources': [(2, 0)],
+            'source_pos': (2, 0),
+        }
+        result = game.resolve_prince_charmant((2, 0), (3, 3))
+        self.assertFalse(result)
+        self.assertIs(game.board.cour[0][2], reine)
 
 
 # ---------------------------------------------------------------------------
