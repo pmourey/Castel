@@ -280,10 +280,25 @@ class TestRougeEffects(unittest.TestCase):
 
     def test_voleur_marks_neighbor(self):
         game = make_game()
+        player = game.players[0]
+        player.is_human = False
         neighbor = make_card('Roi')
+        neighbor.pion_owner = game.players[1]  # has a pion
         place_in_cour(game, neighbor, 1, 0)
         apply(game, 'Voleur', position=(0, 0))
         self.assertTrue(getattr(neighbor, 'stolen', False))
+        self.assertIsNone(getattr(neighbor, 'pion_owner', None))
+
+    def test_voleur_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        player.is_human = True
+        neighbor = make_card('Roi')
+        neighbor.pion_owner = game.players[1]
+        place_in_cour(game, neighbor, 1, 0)
+        CardEffects.voleur_effect(game, player, make_card('Voleur'), (0, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'voleur')
 
     def test_bouffon_passes_cards_left(self):
         game = make_game()
@@ -457,10 +472,20 @@ class TestRougeEffects(unittest.TestCase):
 
     def test_chevalier_noir_removes_chevalier_neighbor(self):
         game = make_game()
+        game.players[0].is_human = False
         chev = make_card('Chevalier', 'Violet')
         place_in_cour(game, chev, 1, 0)
         CardEffects.chevalier_noir_effect(game, game.players[0], make_card('Chevalier_noir'), (0, 0))
         self.assertIsNone(game.board.cour[0][1])
+
+    def test_chevalier_noir_sets_pending_for_human(self):
+        game = make_game()
+        game.players[0].is_human = True
+        chev = make_card('Chevalier', 'Violet')
+        place_in_cour(game, chev, 1, 0)
+        CardEffects.chevalier_noir_effect(game, game.players[0], make_card('Chevalier_noir'), (0, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'pick_return')
 
     def test_conseiller_roi_places_exchange_card(self):
         game = make_game()

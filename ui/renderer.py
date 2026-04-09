@@ -398,6 +398,8 @@ class CastelWindow:
             self._pending_fee(pos)
         elif t == 'favorite':
             self._pending_favorite(pos)
+        elif t == 'voleur':
+            self._pending_voleur(pos)
 
     # -- Guetteur --
 
@@ -685,6 +687,28 @@ class CastelWindow:
             else:
                 self.add_log("Favorite: case invalide (case libre dans la cour requise).")
 
+    # -- Voleur (remove pion from neighbor) --
+
+    def _pending_voleur(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+        if (gx, gy) in pa['valid']:
+            target = self.game.board.cour[gy][gx]
+            name = target.nom if target else str((gx, gy))
+            target.pion_owner = None
+            target.stolen = True
+            self.game.pending_action = None
+            self.add_log(f"Voleur: pion retiré de {name}")
+            if self.game.advance_turn_if_done():
+                self.add_log(f"Tour J{self.game.current_player+1}")
+        else:
+            self.add_log("Voleur: sélectionnez un voisin avec un pion.")
+
+    def _handle_button(self, name, player):
         if name == "draw":
             if player.deck:
                 self.game.draw_card(player)
@@ -1001,7 +1025,16 @@ class CastelWindow:
                         if (cx, cy) != src and self.game.board.cour[cy][cx] is None:
                             _hl_cour(cx, cy, HL_DST)
 
-    def _draw_header(self):
+        elif t == 'voleur':
+            surf = self.font.render("Voleur — Cliquez sur un voisin pour retirer son pion", True, (180, 140, 60))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((40, 30, 0, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            for (cx, cy) in pa.get('valid', []):
+                _hl_cour(cx, cy, (200, 160, 40, 130))
+
         current = self.game.players[self.game.current_player]
         who   = "HUMAIN" if current.is_human else f"IA {self.game.current_player+1}"
         color = (80, 220, 80) if current.is_human else (220, 100, 100)

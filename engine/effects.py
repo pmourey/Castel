@@ -364,13 +364,35 @@ class CardEffects:
     
     @staticmethod
     def voleur_effect(game, player, card, position):
-        """Le voleur retire le pion d'une carte voisine. Si elle est renvoyée, elle va à l'échange."""
+        """Le voleur retire le pion d'une carte voisine non protégée. Si elle est renvoyée, elle va à l'échange."""
         x, y = position
+        valid = []
         for dx in [-1, 1]:
             nx = x + dx
             if 0 <= nx < 4 and game.board.cour[y][nx]:
-                game.board.cour[y][nx].stolen = True
-                return
+                neighbor = game.board.cour[y][nx]
+                if getattr(neighbor, 'pion_owner', None) and not getattr(neighbor, 'protected', False):
+                    valid.append((nx, y))
+        for dy in [-1, 1]:
+            ny = y + dy
+            if 0 <= ny < 4 and game.board.cour[ny][x]:
+                neighbor = game.board.cour[ny][x]
+                if getattr(neighbor, 'pion_owner', None) and not getattr(neighbor, 'protected', False):
+                    valid.append((x, ny))
+        if not valid:
+            return
+        if not player.is_human:
+            cx2, cy2 = valid[0]
+            target = game.board.cour[cy2][cx2]
+            target.pion_owner = None
+            target.stolen = True
+            return
+        # Human: select which neighbor to steal pion from
+        game.pending_action = {
+            'type': 'voleur',
+            'player': player,
+            'valid': valid,
+        }
     
     @staticmethod
     def bouffon_effect(game, player, card, position):
@@ -581,13 +603,25 @@ class CardEffects:
     def chevalier_noir_effect(game, player, card, position):
         """Le chevalier noir renvoie un chevalier se trouvant sur une case voisine."""
         x, y = position
+        valid = []
         for dx in [-1, 1]:
             nx = x + dx
             if 0 <= nx < 4 and game.board.cour[y][nx]:
-                if "Chevalier" in game.board.cour[y][nx].nom:
-                    game.exchange.append(game.board.cour[y][nx])
-                    game.board.cour[y][nx] = None
-                    return
+                if "Chevalier" in game.board.cour[y][nx].nom and not getattr(game.board.cour[y][nx], 'protected', False):
+                    valid.append((nx, y))
+        for dy in [-1, 1]:
+            ny = y + dy
+            if 0 <= ny < 4 and game.board.cour[ny][x]:
+                if "Chevalier" in game.board.cour[ny][x].nom and not getattr(game.board.cour[ny][x], 'protected', False):
+                    valid.append((x, ny))
+        if not valid:
+            return
+        if not player.is_human:
+            cx2, cy2 = valid[0]
+            CardEffects._return_card(game, game.board.cour[cy2][cx2])
+            game.board.cour[cy2][cx2] = None
+            return
+        CardEffects._pending_pick_return(game, player, 'Chevalier_noir', 'cour', valid)
 
     # Vert effects
     @staticmethod
