@@ -153,20 +153,39 @@ class CastelWindow:
     def _draw_card_on_cell(self, card, px, py, size):
         img = self.game.board.card_images.get(card.nom)
         if img:
+            # Fit image to cell using highest-quality scaling
             fitted = self._fit_image(img, size - 4, size - 4)
             fw, fh = fitted.get_size()
             self.screen.blit(fitted, (px + (size - fw) // 2, py + (size - fh) // 2))
         else:
             bg = self._card_color(card)
             pygame.draw.rect(self.screen, bg, (px + 2, py + 2, size - 4, size - 4))
-            lbl = self.font_small.render(card.nom[:10], True, (230, 230, 230))
-            self.screen.blit(lbl, (px + 4, py + size // 2 - 7))
+
+        # Improve readable title: draw a semi-transparent band at bottom and render name larger
+        band_h = max(18, size // 6)
+        band_surf = pygame.Surface((size, band_h), pygame.SRCALPHA)
+        band_surf.fill((0, 0, 0, 150))
+        self.screen.blit(band_surf, (px, py + size - band_h))
+
+        # Render name with outline for readability
+        font_size = max(12, min(28, size // 6))
+        try:
+            font_card = pygame.font.Font(None, font_size)
+        except Exception:
+            font_card = self.font_small
+        text = card.nom
+        txt_surf = font_card.render(text, True, (255, 255, 255))
+        shadow_surf = font_card.render(text, True, (10, 10, 10))
+        tx = px + (size - txt_surf.get_width()) // 2
+        ty = py + size - band_h + (band_h - txt_surf.get_height()) // 2
+        # shadow then text
+        self.screen.blit(shadow_surf, (tx + 1, ty + 1))
+        self.screen.blit(txt_surf, (tx, ty))
 
         # Pawn (pion) displayed at center of placed card, 2x larger than previous size
         owner = getattr(card, 'pion_owner', None)
         if owner:
             col = self._pawn_color(owner)
-            # previously: radius = max(5, size//18). Double that: max(10, size//9)
             radius = max(10, max(6, size // 9))
             cx = px + size // 2
             cy = py + size // 2
@@ -903,9 +922,11 @@ class CastelWindow:
                 grid = self._grid_from_px(mx, my)
                 if grid:
                     txg, tyg = grid
-                    top = self.game.board.cour[tyg][txg]
-                    if top and getattr(top, 'protects', None) is c:
-                        stack.insert(0, top)
+                    # Ensure grid coordinates are within courtyard bounds
+                    if 0 <= txg < 4 and 0 <= tyg < 4:
+                        top = self.game.board.cour[tyg][txg]
+                        if top and getattr(top, 'protects', None) is c:
+                            stack.insert(0, top)
             # Draw stack vertically, using each image at 20% of its original size
             if stack:
                 sizes = []
