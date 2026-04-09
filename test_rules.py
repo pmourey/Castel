@@ -304,29 +304,52 @@ class TestRougeEffects(unittest.TestCase):
         self.assertIn(c1, p0.hand)
         self.assertNotIn(c1, p1.hand)
 
-    def test_intriguant_swaps_two_cour_cards(self):
+    def test_intrigant_swaps_two_cour_cards(self):
         game = make_game()
         c1, c2, intr = make_card('Roi'), make_card('Reine'), make_card('Intriguant')
         place_in_cour(game, intr, 0, 0)
         place_in_cour(game, c1, 1, 0)
         place_in_cour(game, c2, 2, 0)
+        game.players[0].is_human = False
         CardEffects.intrigant_effect(game, game.players[0], intr, (0, 0))
         pos1, pos2 = game.board.cour[0][1], game.board.cour[0][2]
         self.assertIn(pos1, [c1, c2])
         self.assertIn(pos2, [c1, c2])
         self.assertIsNot(pos1, pos2)
 
+    def test_intrigant_sets_pending_for_human(self):
+        game = make_game()
+        c1, c2 = make_card('Roi'), make_card('Reine')
+        place_in_cour(game, c1, 1, 0)
+        place_in_cour(game, c2, 2, 0)
+        game.players[0].is_human = True
+        CardEffects.intrigant_effect(game, game.players[0], make_card('Intriguant'), (0, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'intrigant')
+
     def test_courtisan_removes_neighbor(self):
         game = make_game()
         player = game.players[0]
+        player.is_human = False
         victim = make_card('Roi')
         victim.pion_owner = player
         place_in_cour(game, victim, 1, 0)
         CardEffects.courtisan_effect(game, player, make_card('Courtisan'), (0, 0))
         self.assertIsNone(game.board.cour[0][1])
 
+    def test_courtisan_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        player.is_human = True
+        victim = make_card('Roi')
+        place_in_cour(game, victim, 1, 0)
+        CardEffects.courtisan_effect(game, player, make_card('Courtisan'), (0, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'pick_return')
+
     def test_assassin_removes_neighbor_permanently(self):
         game = make_game()
+        game.players[0].is_human = False
         victim = make_card('Reine')
         place_in_cour(game, victim, 1, 0)
         CardEffects.assassin_effect(game, game.players[0], make_card('Assassin'), (0, 0))
@@ -335,17 +358,39 @@ class TestRougeEffects(unittest.TestCase):
 
     def test_assassin_spares_roi(self):
         game = make_game()
+        game.players[0].is_human = False
         roi = make_card('Roi')
         place_in_cour(game, roi, 1, 0)
         CardEffects.assassin_effect(game, game.players[0], make_card('Assassin'), (0, 0))
         self.assertIs(game.board.cour[0][1], roi)
 
-    def test_pretre_protects_neighbors(self):
+    def test_assassin_sets_pending_for_human(self):
         game = make_game()
+        game.players[0].is_human = True
+        victim = make_card('Reine')
+        place_in_cour(game, victim, 1, 0)
+        CardEffects.assassin_effect(game, game.players[0], make_card('Assassin'), (0, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'assassin')
+
+    def test_pretre_protects_same_owner_neighbors(self):
+        game = make_game()
+        player = game.players[0]
         neighbor = make_card('Roi')
+        neighbor.pion_owner = player   # same owner as the pretre placer
         place_in_cour(game, neighbor, 1, 0)
-        CardEffects.pretre_effect(game, game.players[0], make_card('Pretre'), (0, 0))
+        CardEffects.pretre_effect(game, player, make_card('Pretre'), (0, 0))
         self.assertTrue(getattr(neighbor, 'protected', False))
+
+    def test_pretre_does_not_protect_other_owner(self):
+        game = make_game()
+        player = game.players[0]
+        other = game.players[1]
+        neighbor = make_card('Roi')
+        neighbor.pion_owner = other  # different owner
+        place_in_cour(game, neighbor, 1, 0)
+        CardEffects.pretre_effect(game, player, make_card('Pretre'), (0, 0))
+        self.assertFalse(getattr(neighbor, 'protected', False))
 
     def test_marchand_grants_extra_action(self):
         game = make_game()
@@ -369,11 +414,29 @@ class TestRougeEffects(unittest.TestCase):
         self.assertIs(game.board.cour[1][0], c2)
         self.assertIs(game.board.cour[1][2], c1)
 
-    def test_favorite_marks_can_move_king(self):
+    def test_favorite_moves_roi_for_ai(self):
         game = make_game()
+        player = game.players[0]
+        player.is_human = False
+        roi = make_card('Roi')
+        place_in_cour(game, roi, 0, 0)
         fav = make_card('Favorite')
-        CardEffects.favorite_effect(game, game.players[0], fav, (0, 0))
-        self.assertTrue(getattr(fav, 'can_move_king', False))
+        CardEffects.favorite_effect(game, player, fav, (1, 0))
+        # Roi should have moved (no longer at 0,0)
+        roi_positions = [(cx, cy) for cy in range(4) for cx in range(4)
+                         if game.board.cour[cy][cx] is roi]
+        self.assertEqual(len(roi_positions), 1)
+        self.assertNotEqual(roi_positions[0], (0, 0))
+
+    def test_favorite_sets_pending_for_human(self):
+        game = make_game()
+        player = game.players[0]
+        player.is_human = True
+        roi = make_card('Roi')
+        place_in_cour(game, roi, 0, 0)
+        CardEffects.favorite_effect(game, player, make_card('Favorite'), (1, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'favorite')
 
     def test_dame_compagnie_removes_male_neighbor(self):
         game = make_game()
@@ -425,6 +488,7 @@ class TestRougeEffects(unittest.TestCase):
 class TestVertEffects(unittest.TestCase):
     def test_barbare_removes_tile_card(self):
         game = make_game()
+        game.players[0].is_human = False
         tile_card = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
         tour_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'tour'][0]
         place_on_tile(game, tile_card, tour_pos)
@@ -435,8 +499,18 @@ class TestVertEffects(unittest.TestCase):
         game = make_game()
         apply(game, 'Barbare', position=(6, 0))
 
+    def test_barbare_sets_pending_for_human(self):
+        game = make_game()
+        tile_card = make_card('Soldat', 'Orange', 'Arrive sur les remparts')
+        tour_pos = [p for p, t in game.board.tiles.items() if t['type'] == 'tour'][0]
+        place_on_tile(game, tile_card, tour_pos)
+        CardEffects.barbare_effect(game, game.players[0], make_card('Barbare'), (6, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'pick_return')
+
     def test_fee_moves_cour_card_to_exterior(self):
         game = make_game()
+        game.players[0].is_human = False
         victim = make_card('Roi')
         place_in_cour(game, victim, 1, 1)
         apply(game, 'Fee', position=(6, 0))
@@ -446,6 +520,15 @@ class TestVertEffects(unittest.TestCase):
     def test_fee_empty_cour_is_safe(self):
         game = make_game()
         apply(game, 'Fee', position=(6, 0))
+
+    def test_fee_sets_pending_for_human(self):
+        game = make_game()
+        game.players[0].is_human = True
+        victim = make_card('Roi')
+        place_in_cour(game, victim, 1, 1)
+        CardEffects.fee_effect(game, game.players[0], make_card('Fee'), (6, 0))
+        self.assertIsNotNone(game.pending_action)
+        self.assertEqual(game.pending_action['type'], 'fee')
 
     def test_enchanteur_returns_previous_card(self):
         game = make_game()

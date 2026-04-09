@@ -390,6 +390,14 @@ class CastelWindow:
             self._pending_prince_charmant(pos)
         elif t == 'pick_return':
             self._pending_pick_return_click(pos)
+        elif t == 'intrigant':
+            self._pending_intrigant(pos)
+        elif t == 'assassin':
+            self._pending_assassin(pos)
+        elif t == 'fee':
+            self._pending_fee(pos)
+        elif t == 'favorite':
+            self._pending_favorite(pos)
 
     # -- Guetteur --
 
@@ -558,8 +566,125 @@ class CastelWindow:
         else:
             self.add_log(f"{effect_name}: cible invalide, choisissez parmi les cases surlignées")
 
+    # -- Intrigant (swap 2 cards) --
 
-    def _handle_button(self, name, player):
+    def _pending_intrigant(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+        if not (0 <= gx < 4 and 0 <= gy < 4):
+            return
+        if pa['step'] == 1:
+            if (gx, gy) in pa['valid']:
+                pa['first_pos'] = (gx, gy)
+                pa['step'] = 2
+                name = self.game.board.cour[gy][gx].nom
+                self.add_log(f"Intrigant: {name} sélectionné. Choisissez la 2ème carte.")
+        elif pa['step'] == 2:
+            first = pa['first_pos']
+            if (gx, gy) in pa['valid'] and (gx, gy) != first:
+                x1, y1 = first
+                x2, y2 = gx, gy
+                self.game.board.cour[y1][x1], self.game.board.cour[y2][x2] = (
+                    self.game.board.cour[y2][x2], self.game.board.cour[y1][x1]
+                )
+                self.game.pending_action = None
+                self.add_log(f"Intrigant: pions échangés entre {first} et {(gx, gy)}")
+                if self.game.advance_turn_if_done():
+                    self.add_log(f"Tour J{self.game.current_player+1}")
+            else:
+                self.add_log("Intrigant: sélectionnez une autre carte valide.")
+
+    # -- Assassin --
+
+    def _pending_assassin(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+        if (gx, gy) in pa['valid']:
+            target = self.game.board.cour[gy][gx]
+            name = target.nom if target else str((gx, gy))
+            self.game.board.cour[gy][gx] = None  # permanently removed
+            self.game.pending_action = None
+            self.add_log(f"Assassin: {name} éliminé définitivement")
+            if self.game.advance_turn_if_done():
+                self.add_log(f"Tour J{self.game.current_player+1}")
+        else:
+            self.add_log("Assassin: cible invalide, choisissez un voisin surligné.")
+
+    # -- Fée --
+
+    def _pending_fee(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+        if (gx, gy) in pa['valid']:
+            pulled = self.game.board.cour[gy][gx]
+            self.game.board.cour[gy][gx] = None
+            ext_x = 6
+            while (ext_x, 0) in self.game.board.exterieur:
+                ext_x += 1
+            self.game.board.exterieur[(ext_x, 0)] = pulled
+            self.game.pending_action = None
+            self.add_log(f"Fée: {pulled.nom} attiré hors les murs")
+            if self.game.advance_turn_if_done():
+                self.add_log(f"Tour J{self.game.current_player+1}")
+        else:
+            self.add_log("Fée: sélectionnez une carte dans le château.")
+
+    # -- Favorite (move Roi + Chevalier) --
+
+    def _pending_favorite(self, pos):
+        pa = self.game.pending_action
+        x, y = pos
+        grid = self._grid_from_px(x, y)
+        if grid is None:
+            return
+        gx, gy = grid
+        if pa['step'] == 1:
+            if (gx, gy) in pa['valid']:
+                pa['source_pos'] = (gx, gy)
+                pa['step'] = 2
+                name = self.game.board.cour[gy][gx].nom
+                self.add_log(f"Favorite: {name} sélectionné. Choisissez la destination.")
+        elif pa['step'] == 2:
+            src = pa['source_pos']
+            if 0 <= gx < 4 and 0 <= gy < 4 and (gx, gy) != src and self.game.board.cour[gy][gx] is None:
+                sx, sy = src
+                self.game.board.cour[gy][gx] = self.game.board.cour[sy][sx]
+                self.game.board.cour[sy][sx] = None
+                pa['moves_left'] -= 1
+                self.add_log(f"Favorite: carte déplacée vers {(gx, gy)}")
+                if pa['moves_left'] > 0:
+                    # Refresh valid sources (cards may have moved)
+                    valid = [
+                        (cx2, cy2) for cy2 in range(4) for cx2 in range(4)
+                        if self.game.board.cour[cy2][cx2]
+                        and ("Roi" in self.game.board.cour[cy2][cx2].nom
+                             or "Chevalier" in self.game.board.cour[cy2][cx2].nom)
+                        and not getattr(self.game.board.cour[cy2][cx2], 'protected', False)
+                    ]
+                    if valid:
+                        pa['valid'] = valid
+                        pa['source_pos'] = None
+                        pa['step'] = 1
+                        self.add_log("Favorite: déplacez un 2ème personnage ou passez.")
+                        return
+                self.game.pending_action = None
+                if self.game.advance_turn_if_done():
+                    self.add_log(f"Tour J{self.game.current_player+1}")
+            else:
+                self.add_log("Favorite: case invalide (case libre dans la cour requise).")
+
         if name == "draw":
             if player.deck:
                 self.game.draw_card(player)
@@ -817,7 +942,65 @@ class CastelWindow:
                 else:
                     _hl_tile(pos, HL_TARGET)
 
-    def _draw_header(self):
+        elif t == 'intrigant':
+            step = pa.get('step', 1)
+            banner = ("Intrigant — Sélectionnez la 1ère carte à échanger" if step == 1
+                      else "Intrigant — Sélectionnez la 2ème carte à échanger")
+            surf = self.font.render(banner, True, (255, 200, 80))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((30, 20, 0, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            first = pa.get('first_pos')
+            for (cx, cy) in pa.get('valid', []):
+                if first and (cx, cy) == first:
+                    _hl_cour(cx, cy, HL_SRC)
+                else:
+                    _hl_cour(cx, cy, (200, 200, 80, 110))
+
+        elif t == 'assassin':
+            surf = self.font.render("Assassin — Cliquez sur le personnage à éliminer", True, (255, 80, 80))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((40, 0, 0, 210))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            for (cx, cy) in pa.get('valid', []):
+                _hl_cour(cx, cy, (230, 40, 40, 130))
+
+        elif t == 'fee':
+            surf = self.font.render("Fée — Cliquez sur la carte à attirer hors les murs", True, (180, 120, 255))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((20, 0, 40, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            for (cx, cy) in pa.get('valid', []):
+                _hl_cour(cx, cy, (160, 80, 230, 120))
+
+        elif t == 'favorite':
+            step = pa.get('step', 1)
+            msg2 = ("Favorite — Sélectionnez un Roi ou Chevalier à déplacer" if step == 1
+                    else "Favorite — Choisissez la case de destination")
+            surf = self.font.render(msg2, True, (255, 200, 120))
+            bx = self.castle_x + (self.castle_w - surf.get_width()) // 2
+            bg2 = pygame.Surface((surf.get_width() + 16, surf.get_height() + 6), pygame.SRCALPHA)
+            bg2.fill((40, 20, 0, 200))
+            self.screen.blit(bg2, (bx - 8, TOP_H + 3))
+            self.screen.blit(surf, (bx, TOP_H + 6))
+            if step == 1:
+                for (cx, cy) in pa.get('valid', []):
+                    _hl_cour(cx, cy, HL_SRC)
+            else:
+                src = pa.get('source_pos')
+                if src:
+                    _hl_cour(*src, HL_SRC)
+                for cy in range(4):
+                    for cx in range(4):
+                        if (cx, cy) != src and self.game.board.cour[cy][cx] is None:
+                            _hl_cour(cx, cy, HL_DST)
+
         current = self.game.players[self.game.current_player]
         who   = "HUMAIN" if current.is_human else f"IA {self.game.current_player+1}"
         color = (80, 220, 80) if current.is_human else (220, 100, 100)
@@ -947,7 +1130,7 @@ class CastelWindow:
         self._draw_exterior_strip(dragging_ext)
 
     def _draw_cour_card(self, card, px, py):
-        """Draw a cour card, handling Chevalier stacking."""
+        """Draw a cour card, handling Chevalier stacking and Prêtre protection indicator."""
         protected = getattr(card, "protects", None)
         if protected:
             # Protected card drawn slightly offset (bottom-right corner visible)
@@ -956,11 +1139,21 @@ class CastelWindow:
             self._draw_card_on_cell(protected, px + offset, py + offset, inner)
             # Chevalier on top (slightly smaller to reveal corner of protected card)
             self._draw_card_on_cell(card, px, py, self.cell - offset)
-            # Shield icon to indicate protection
+            # Blue shield icon for Chevalier protection
             pygame.draw.circle(self.screen, (100, 155, 255), (px + self.cell - 8, py + 8), 7)
             pygame.draw.circle(self.screen, (200, 220, 255), (px + self.cell - 8, py + 8), 7, 1)
         else:
             self._draw_card_on_cell(card, px, py, self.cell)
+            # Gold cross icon for Prêtre protection (protected_by is a Prêtre card)
+            protector = getattr(card, 'protected_by', None)
+            if protector is not None and getattr(card, 'protected', False):
+                cx_icon = px + self.cell - 8
+                cy_icon = py + 8
+                pygame.draw.circle(self.screen, (220, 180, 50), (cx_icon, cy_icon), 7)
+                pygame.draw.circle(self.screen, (255, 230, 120), (cx_icon, cy_icon), 7, 1)
+                # Small cross inside
+                pygame.draw.line(self.screen, (255, 255, 200), (cx_icon, cy_icon - 4), (cx_icon, cy_icon + 4), 2)
+                pygame.draw.line(self.screen, (255, 255, 200), (cx_icon - 3, cy_icon - 1), (cx_icon + 3, cy_icon - 1), 2)
 
     def _draw_exterior_strip(self, highlight):
         # Label

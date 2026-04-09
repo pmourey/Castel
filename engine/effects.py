@@ -313,19 +313,30 @@ class CardEffects:
         card.king_substitute = True
     
     @staticmethod
+    @staticmethod
     def intrigant_effect(game, player, card, position):
-        """L'intrigant échange les pions de deux autres cartes."""
-        # Swap positions of two random cards
+        """L'intrigant échange les pions (positions) de deux autres cartes."""
         cards_on_board = []
         for cy in range(4):
             for cx in range(4):
-                if game.board.cour[cy][cx] and game.board.cour[cy][cx] != card:
+                if game.board.cour[cy][cx] and game.board.cour[cy][cx] is not card:
                     cards_on_board.append((cx, cy))
-        if len(cards_on_board) >= 2:
+        if len(cards_on_board) < 2:
+            return
+        if not player.is_human:
             idx1, idx2 = random.sample(range(len(cards_on_board)), 2)
             x1, y1 = cards_on_board[idx1]
             x2, y2 = cards_on_board[idx2]
             game.board.cour[y1][x1], game.board.cour[y2][x2] = game.board.cour[y2][x2], game.board.cour[y1][x1]
+            return
+        # Human: interactive 2-step selection
+        game.pending_action = {
+            'type': 'intrigant',
+            'step': 1,
+            'player': player,
+            'valid': cards_on_board,
+            'first_pos': None,
+        }
     
     @staticmethod
     def espion_effect(game, player, card, position):
@@ -393,16 +404,22 @@ class CardEffects:
     
     @staticmethod
     def pretre_effect(game, player, card, position):
-        """Le prêtre protège les personnages des cases voisines ayant un pion de même couleur."""
+        """Le prêtre protège les cartes voisines appartenant au même joueur (même pion_owner)."""
         x, y = position
         for dx in [-1, 1]:
             nx = x + dx
-            if 0 <= nx < 4 and game.board.cour[y][nx]:
-                game.board.cour[y][nx].protected = True
+            if 0 <= nx < 4:
+                neighbor = game.board.cour[y][nx]
+                if neighbor and getattr(neighbor, 'pion_owner', None) is player:
+                    neighbor.protected = True
+                    neighbor.protected_by = card
         for dy in [-1, 1]:
             ny = y + dy
-            if 0 <= ny < 4 and game.board.cour[ny][x]:
-                game.board.cour[ny][x].protected = True
+            if 0 <= ny < 4:
+                neighbor = game.board.cour[ny][x]
+                if neighbor and getattr(neighbor, 'pion_owner', None) is player:
+                    neighbor.protected = True
+                    neighbor.protected_by = card
     
     @staticmethod
     def dame_compagnie_effect(game, player, card, position):
@@ -421,25 +438,55 @@ class CardEffects:
     def courtisan_effect(game, player, card, position):
         """Le courtisan renvoie du château une carte se trouvant sur une case voisine."""
         x, y = position
+        valid = []
         for dx in [-1, 1]:
             nx = x + dx
             if 0 <= nx < 4 and game.board.cour[y][nx]:
                 if not getattr(game.board.cour[y][nx], 'protected', False):
-                    CardEffects._return_card(game, game.board.cour[y][nx])
-                    game.board.cour[y][nx] = None
-                    return
+                    valid.append((nx, y))
+        for dy in [-1, 1]:
+            ny = y + dy
+            if 0 <= ny < 4 and game.board.cour[ny][x]:
+                if not getattr(game.board.cour[ny][x], 'protected', False):
+                    valid.append((x, ny))
+        if not valid:
+            return
+        if not player.is_human:
+            cx2, cy2 = valid[0]
+            CardEffects._return_card(game, game.board.cour[cy2][cx2])
+            game.board.cour[cy2][cx2] = None
+            return
+        CardEffects._pending_pick_return(game, player, 'Courtisan', 'cour', valid)
     
     @staticmethod
     def assassin_effect(game, player, card, position):
         """L'assassin retire définitivement du jeu n'importe quelle carte (sauf le roi) voisine."""
         x, y = position
+        valid = []
         for dx in [-1, 1]:
             nx = x + dx
             if 0 <= nx < 4 and game.board.cour[y][nx]:
                 target = game.board.cour[y][nx]
                 if "Roi" not in target.nom and not getattr(target, 'protected', False):
-                    game.board.cour[y][nx] = None
-                    return
+                    valid.append((nx, y))
+        for dy in [-1, 1]:
+            ny = y + dy
+            if 0 <= ny < 4 and game.board.cour[ny][x]:
+                target = game.board.cour[ny][x]
+                if "Roi" not in target.nom and not getattr(target, 'protected', False):
+                    valid.append((x, ny))
+        if not valid:
+            return
+        if not player.is_human:
+            cx2, cy2 = valid[0]
+            game.board.cour[cy2][cx2] = None  # permanently remove
+            return
+        # Human: select target to permanently eliminate
+        game.pending_action = {
+            'type': 'assassin',
+            'player': player,
+            'valid': valid,
+        }
     
     @staticmethod
     def conseiller_roi_effect(game, player, card, position):
@@ -467,8 +514,39 @@ class CardEffects:
     @staticmethod
     def favorite_effect(game, player, card, position):
         """La favorite déplace librement le roi et un chevalier."""
-        # Mark for special movement
-        card.can_move_king = True
+        # Build valid sources: Roi + Chevalier(s) on cour
+        valid = []
+        for cy in range(4):
+            for cx in range(4):
+                c = game.board.cour[cy][cx]
+                if c and ("Roi" in c.nom or "Chevalier" in c.nom):
+                    if not getattr(c, 'protected', False):
+                        valid.append((cx, cy))
+        if not valid:
+            return
+        if not player.is_human:
+            for src in valid:
+                sx, sy = src
+                src_card = game.board.cour[sy][sx]
+                for ty in range(4):
+                    for tx in range(4):
+                        if (tx, ty) != (sx, sy) and game.board.cour[ty][tx] is None:
+                            game.board.cour[ty][tx] = src_card
+                            game.board.cour[sy][sx] = None
+                            break
+                    else:
+                        continue
+                    break
+            return
+        # Human: move up to 2 pieces; start with step 1 (pick first card)
+        game.pending_action = {
+            'type': 'favorite',
+            'step': 1,
+            'player': player,
+            'valid': valid,
+            'moves_left': 2,
+            'source_pos': None,
+        }
     
     @staticmethod
     def prince_charmant_effect(game, player, card, position):
@@ -516,11 +594,24 @@ class CardEffects:
     def barbare_effect(game, player, card, position):
         """Le barbare renvoie une carte se trouvant dans une tour ou sur un rempart."""
         occupied = [(pos, tile) for pos, tile in game.board.tiles.items() if tile['card']]
-        if occupied:
+        if not occupied:
+            return
+        if not player.is_human:
             pos, tile = random.choice(occupied)
             removed = tile['card']
             tile['card'] = None
             CardEffects._return_card(game, removed)
+            return
+        # Human: pick which tile card to return
+        valid_positions = [pos for pos, tile in occupied]
+        game.pending_action = {
+            'type': 'pick_return',
+            'effect': 'Barbare',
+            'zone': 'tile',
+            'valid': valid_positions,
+            'player': player,
+            'next': None,
+        }
 
     @staticmethod
     def fee_effect(game, player, card, position):
@@ -529,15 +620,23 @@ class CardEffects:
             (cx, cy) for cy in range(4) for cx in range(4)
             if game.board.cour[cy][cx]
         ]
-        if cards_in_cour:
-            cx, cy = random.choice(cards_in_cour)
-            pulled = game.board.cour[cy][cx]
-            game.board.cour[cy][cx] = None
-            # Place in exterior at a free position
+        if not cards_in_cour:
+            return
+        if not player.is_human:
+            cx2, cy2 = random.choice(cards_in_cour)
+            pulled = game.board.cour[cy2][cx2]
+            game.board.cour[cy2][cx2] = None
             ext_x = 6
             while (ext_x, 0) in game.board.exterieur:
                 ext_x += 1
             game.board.exterieur[(ext_x, 0)] = pulled
+            return
+        # Human: select which cour card to attract outside
+        game.pending_action = {
+            'type': 'fee',
+            'player': player,
+            'valid': cards_in_cour,
+        }
 
     @staticmethod
     def enchanteur_effect(game, player, card, position):
@@ -592,8 +691,10 @@ class CardEffects:
 
     @staticmethod
     def dragon_effect(game, player, card, position):
-        """Le dragon renvoie une carte hors les murs et une carte dans une tour ou rempart."""
-        ext_positions = list(game.board.exterieur.keys())
+        """Le dragon renvoie une carte hors les murs et une carte dans une tour ou rempart.
+        Le dragon ne peut pas se renvoyer lui-même."""
+        # Exclude the dragon card itself from ext candidates
+        ext_positions = [pos for pos, c in game.board.exterieur.items() if c is not card]
         tile_positions = [pos for pos, tile in game.board.tiles.items() if tile['card']]
 
         if not player.is_human:
