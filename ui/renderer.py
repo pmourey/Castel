@@ -76,10 +76,10 @@ class CastelWindow:
         self.sw, self.sh = w, h
         self.inner_h = h - TOP_H - BTM_H
 
-        # CELL: constrained by both vertical space and castle panel width
-        cell_v = max(40, min(160, (h - TOP_H - BTM_H - 60) // 9))
+        # CELL: constrained by both vertical space and castle panel width (no upper cap — let HiDPI give larger cells)
+        cell_v = max(40, (h - TOP_H - BTM_H - 60) // 9)
         avail_w = w - LEFT_W - LOG_W
-        cell_h  = max(40, min(160, (avail_w // 2 - 40) // 8))
+        cell_h  = max(40, (avail_w // 2 - 40) // 8)
         self.cell = min(cell_v, cell_h)
         c = self.cell
 
@@ -181,13 +181,13 @@ class CastelWindow:
             pygame.draw.rect(self.screen, bg, (px + 2, py + 2, size - 4, size - 4))
 
         # Improve readable title: draw a semi-transparent band at bottom and render name larger
-        band_h = max(18, size // 6)
+        band_h = max(18, size // 5)
         band_surf = pygame.Surface((size, band_h), pygame.SRCALPHA)
         band_surf.fill((0, 0, 0, 150))
         self.screen.blit(band_surf, (px, py + size - band_h))
 
-        # Render name with outline for readability
-        font_size = max(12, min(28, size // 6))
+        # Render name with outline for readability — no upper cap so HiDPI gets large text
+        font_size = max(16, size // 5)
         try:
             font_card = pygame.font.Font(None, font_size)
         except Exception:
