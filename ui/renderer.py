@@ -97,11 +97,10 @@ class CastelWindow:
         self.ext_strip_y = self.castle_grid_bottom + c + 4
         self.ext_strip_h = h - BTM_H - self.ext_strip_y
 
-        # Exchange cards: compute columns based on available hand width
-        # hand_card_size: fill available height while respecting horizontal limit
+        # hand_card_size: fill available height more generously so cards are readable
         hand_area_h = h - TOP_H - BTM_H - HAND_BTN_H - 10 - 32   # inner minus buttons minus title
-        # Allocate ~40% of height to hand, ~40% to exchange, 20% to buttons/title
-        slot_v = max(48, (hand_area_h * 45 // 100) // 3)          # fits 3 hand rows in 45% height
+        # Allocate ~60% of height to hand/exchange rows (was 45%) → larger cards
+        slot_v = max(48, (hand_area_h * 60 // 100) // 3)          # fits 3 hand rows in 60% height
         horiz_limit = max(48, (self.hand_w - 20 - (HAND_CARD_COLS - 1) * HAND_CARD_GAP) // HAND_CARD_COLS)
         self.hand_card_size = min(horiz_limit, slot_v)
         hs = self.hand_card_size
@@ -1823,15 +1822,15 @@ class CastelWindow:
                         top = self.game.board.cour[tyg][txg]
                         if top and getattr(top, 'protects', None) is c:
                             stack.insert(0, top)
-            # Draw stack vertically, using each image at 20% of its original size
+            # Draw stack vertically, using each image at 40% of its original size
             if stack:
                 sizes = []
                 for card_obj in stack:
                     img = self.game.board.card_images.get(card_obj.nom)
                     if img:
                         ow, oh = img.get_size()
-                        tw_i = max(40, int(ow * 0.20))
-                        th_i = max(40, int(oh * 0.20))
+                        tw_i = max(80, int(ow * 0.40))
+                        th_i = max(80, int(oh * 0.40))
                     else:
                         # fallback to reasonable size derived from hand_card_size
                         tw_i = th_i = max(80, int(self.hand_card_size * 0.6))
@@ -1851,8 +1850,8 @@ class CastelWindow:
             img = self.game.board.card_images.get(c.nom)
             if img:
                 ow, oh = img.get_size()
-                tw = max(40, int(ow * 0.20))
-                th = max(40, int(oh * 0.20))
+                tw = max(80, int(ow * 0.40))
+                th = max(80, int(oh * 0.40))
                 tx = mx + 15 if mx + 15 + tw < self.sw else mx - tw - 15
                 ty = my + 15 if my + 15 + th < self.sh else my - th - 15
                 scaled = pygame.transform.smoothscale(img, (tw, th))
