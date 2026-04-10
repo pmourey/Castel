@@ -24,20 +24,32 @@ SIEGE_SLOTS = (
 )
 
 
+# SDL2 flag to enable Retina/HiDPI: surface size = physical pixels, events in logical pixels
+SDL_WINDOW_ALLOW_HIGHDPI = 0x2000
+
+
 class CastelWindow:
     def __init__(self, game):
         self.game = game
         pygame.init()
-        self._recompute_layout(1800, 900)
-        self.screen = pygame.display.set_mode((self.sw, self.sh), pygame.RESIZABLE)
+        logical_w, logical_h = 1800, 900
+        self.screen = pygame.display.set_mode(
+            (logical_w, logical_h),
+            pygame.RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI,
+        )
+        # Detect Retina scale factor: physical surface vs. logical window size
+        phys_w, phys_h = self.screen.get_size()
+        self.dpi_scale = phys_w / logical_w  # 2.0 on Retina, 1.0 otherwise
+        self._recompute_layout(phys_w, phys_h)
         pygame.display.set_caption("Castel - Jeu de Plateau")
         self.clock = pygame.time.Clock()
         self.running = True
 
-        self.font       = pygame.font.Font(None, 20)
-        self.font_small = pygame.font.Font(None, 16)
-        self.font_title = pygame.font.Font(None, 30)
-        self.font_big   = pygame.font.Font(None, 72)
+        fs = self.dpi_scale
+        self.font       = pygame.font.Font(None, round(20 * fs))
+        self.font_small = pygame.font.Font(None, round(16 * fs))
+        self.font_title = pygame.font.Font(None, round(30 * fs))
+        self.font_big   = pygame.font.Font(None, round(72 * fs))
 
         self.game.board.load_images()
 
@@ -99,6 +111,12 @@ class CastelWindow:
         """Handle window resize: recompute layout and recreate buttons."""
         self._recompute_layout(w, h)
         self._create_action_buttons()
+
+    def _scale_pos(self, pos):
+        """Scale a logical mouse position (pygame event) to physical pixels."""
+        if self.dpi_scale == 1.0:
+            return pos
+        return (round(pos[0] * self.dpi_scale), round(pos[1] * self.dpi_scale))
 
     # -------------------------------------------------------------------------
     # Helpers
@@ -305,15 +323,22 @@ class CastelWindow:
                     else:
                         self.running = False
             if event.type == pygame.VIDEORESIZE:
-                self._on_resize(event.w, event.h)
+                # Re-create surface to get physical drawable size at new logical size
+                self.screen = pygame.display.set_mode(
+                    (event.w, event.h),
+                    pygame.RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI,
+                )
+                phys_w, phys_h = self.screen.get_size()
+                self.dpi_scale = phys_w / event.w if event.w > 0 else self.dpi_scale
+                self._on_resize(phys_w, phys_h)
             if event.type == pygame.MOUSEMOTION:
-                self.mouse_pos = event.pos
+                self.mouse_pos = self._scale_pos(event.pos)
                 self._update_tooltip()
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                self._handle_mouse_down(event.pos)
+                self._handle_mouse_down(self._scale_pos(event.pos))
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 if self.dragging_card:
-                    self._handle_drop(event.pos)
+                    self._handle_drop(self._scale_pos(event.pos))
 
     def _cancel_pending_action(self):
         """Cancel the current pending action (ESC or skip)."""

@@ -13,8 +13,8 @@ class Board:
         self.card_images = {}  # key: card.nom, value: image
 
     def load_images(self):
-        self.tour_img = pygame.image.load(Path(__file__).parent.parent / "images" / "Tour.png")
-        self.rempart_img = pygame.image.load(Path(__file__).parent.parent / "images" / "Rempart.png")
+        self.tour_img = pygame.image.load(Path(__file__).parent.parent / "images" / "Tour.png").convert_alpha()
+        self.rempart_img = pygame.image.load(Path(__file__).parent.parent / "images" / "Rempart.png").convert_alpha()
         # Load card images
         images_dir = Path(__file__).parent.parent / "images"
         for color_dir in images_dir.iterdir():
@@ -22,7 +22,7 @@ class Board:
                 for img_file in color_dir.iterdir():
                     if img_file.suffix.lower() == '.png':
                         name = img_file.stem
-                        self.card_images[name] = pygame.image.load(img_file)
+                        self.card_images[name] = pygame.image.load(img_file).convert_alpha()
 
     def add_tile(self, x, y, tile_type, rotation=0):
         """Add a tile at position (x, y), rotation in degrees (0,90,180,270)"""
