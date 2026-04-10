@@ -180,27 +180,6 @@ class CastelWindow:
             bg = self._card_color(card)
             pygame.draw.rect(self.screen, bg, (px + 2, py + 2, size - 4, size - 4))
 
-        # Improve readable title: draw a semi-transparent band at bottom and render name larger
-        band_h = max(18, size // 5)
-        band_surf = pygame.Surface((size, band_h), pygame.SRCALPHA)
-        band_surf.fill((0, 0, 0, 150))
-        self.screen.blit(band_surf, (px, py + size - band_h))
-
-        # Render name with outline for readability — no upper cap so HiDPI gets large text
-        font_size = max(16, size // 5)
-        try:
-            font_card = pygame.font.Font(None, font_size)
-        except Exception:
-            font_card = self.font_small
-        text = card.nom
-        txt_surf = font_card.render(text, True, (255, 255, 255))
-        shadow_surf = font_card.render(text, True, (10, 10, 10))
-        tx = px + (size - txt_surf.get_width()) // 2
-        ty = py + size - band_h + (band_h - txt_surf.get_height()) // 2
-        # shadow then text
-        self.screen.blit(shadow_surf, (tx + 1, ty + 1))
-        self.screen.blit(txt_surf, (tx, ty))
-
         # Pawn (pion) displayed at center of placed card, 2x larger than previous size
         owner = getattr(card, 'pion_owner', None)
         if owner:
